@@ -772,6 +772,17 @@
                             <div class="hero-badge"><i data-lucide="sparkles"></i> Live Medical Catalog</div>
                             <h2>Digital Menu Card</h2>
                             <p>Browse pharmaceutical inventory with live stock status and instant billing integration.</p>
+                            <div style="display: flex; gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap;">
+                                <button type="button" class="btn" onclick="shareDigitalMenuWhatsApp()" style="background: #25D366; color: white; border: none; font-weight: 600; padding: 7px 14px; font-size: 0.85rem;">
+                                    <i data-lucide="message-square"></i> Share via WhatsApp
+                                </button>
+                                <button type="button" class="btn btn-outline" onclick="copyDigitalMenuLink()" style="font-weight: 600; padding: 7px 14px; font-size: 0.85rem;">
+                                    <i data-lucide="copy"></i> Copy Link
+                                </button>
+                                <button type="button" class="btn btn-secondary" onclick="showDigitalMenuQRCode()" style="font-weight: 600; padding: 7px 14px; font-size: 0.85rem;">
+                                    <i data-lucide="qr-code"></i> Show QR Code
+                                </button>
+                            </div>
                         </div>
                         <div class="menu-kpi-grid">
                             <div class="kpi-mini-card">
@@ -1822,6 +1833,29 @@
                     <a id="success-whatsapp-btn" href="#" target="_blank" class="btn" style="background: #25D366; color: white; border: none;">
                         <i data-lucide="message-square"></i> WhatsApp Ticket
                     </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- QR Code & Digital Menu Share Modal -->
+        <div id="qr-code-modal" class="modal" style="display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.5);">
+            <div class="modal-content" style="max-width: 420px; text-align: center; padding: 2rem; border-radius: 16px; background: var(--card-bg);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h3 style="margin: 0; color: var(--primary-color); font-size: 1.3rem; display: flex; align-items: center; gap: 8px;"><i data-lucide="qr-code"></i> Digital Menu QR Code</h3>
+                    <button type="button" onclick="closeQRCodeModal()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted);">&times;</button>
+                </div>
+                <h4 id="qr-shop-name" style="color: var(--text-main); margin-bottom: 0.5rem; font-size: 1.1rem;">Shop Name</h4>
+                <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1.25rem;">Scan this QR code with any smartphone camera to open the live Digital Catalog & Menu.</p>
+                
+                <div style="background: white; padding: 1rem; border-radius: 12px; display: inline-block; box-shadow: 0 4px 12px rgba(0,0,0,0.08); margin-bottom: 1rem;">
+                    <img id="qr-code-img" src="" alt="Digital Menu QR Code" style="width: 220px; height: 220px; display: block; border-radius: 8px;">
+                </div>
+
+                <div id="qr-code-url" style="font-size: 0.8rem; color: var(--text-muted); word-break: break-all; margin-bottom: 1.5rem; background: var(--bg-color); padding: 8px 12px; border-radius: 6px; font-family: monospace;"></div>
+
+                <div style="display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap;">
+                    <button type="button" class="btn btn-secondary" onclick="printQRCodePoster()" style="flex: 1; min-width: 140px;"><i data-lucide="printer"></i> Print Poster</button>
+                    <button type="button" class="btn btn-primary" onclick="copyDigitalMenuLink()" style="flex: 1; min-width: 140px;"><i data-lucide="copy"></i> Copy Link</button>
                 </div>
             </div>
         </div>

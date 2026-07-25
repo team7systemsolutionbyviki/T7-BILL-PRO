@@ -4933,3 +4933,102 @@ window.runAutoLocalBackup = async function() {
         console.error("Auto local backup failed:", e);
     }
 }
+
+// --- Digital Menu Sharing & QR Code ---
+function getDigitalMenuURL() {
+    const currentUrl = window.location.href.split('#')[0];
+    return `${currentUrl}#menu-card`;
+}
+
+function shareDigitalMenuWhatsApp() {
+    const shopName = settings.shopName || 'T7 BillPro Pharma';
+    const menuUrl = getDigitalMenuURL();
+    const message = `Hello! Check out our live Digital Catalog & Menu for ${shopName}:\n\n🔗 ${menuUrl}\n\nYou can browse our live stock and place orders directly!`;
+    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
+    window.open(whatsappUrl, '_blank');
+}
+
+function copyDigitalMenuLink() {
+    const menuUrl = getDigitalMenuURL();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(menuUrl).then(() => {
+            alert('Digital Menu link copied to clipboard!\n\n' + menuUrl);
+        }).catch(() => {
+            prompt('Copy your Digital Menu Link below:', menuUrl);
+        });
+    } else {
+        prompt('Copy your Digital Menu Link below:', menuUrl);
+    }
+}
+
+function showDigitalMenuQRCode() {
+    const modal = document.getElementById('qr-code-modal');
+    const qrImg = document.getElementById('qr-code-img');
+    const qrUrlText = document.getElementById('qr-code-url');
+    const shopTitle = document.getElementById('qr-shop-name');
+    
+    if (!modal) return;
+    
+    const menuUrl = getDigitalMenuURL();
+    const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(menuUrl)}`;
+    
+    if (qrImg) qrImg.src = qrApiUrl;
+    if (qrUrlText) qrUrlText.textContent = menuUrl;
+    if (shopTitle) shopTitle.textContent = settings.shopName || 'T7 BillPro Pharma';
+    
+    modal.style.display = 'flex';
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function closeQRCodeModal() {
+    const modal = document.getElementById('qr-code-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+function printQRCodePoster() {
+    const shopName = settings.shopName || 'T7 BillPro Pharma';
+    const shopAddress = settings.shopAddress || '';
+    const shopPhone = settings.shopPhone || '';
+    const menuUrl = getDigitalMenuURL();
+    const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(menuUrl)}`;
+    
+    const printWin = window.open('', '_blank');
+    if (!printWin) {
+        alert('Please allow popups to print the QR Code poster.');
+        return;
+    }
+    printWin.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>${shopName} - Scan QR Code for Digital Menu</title>
+            <style>
+                body { font-family: 'Inter', system-ui, sans-serif; text-align: center; padding: 40px; color: #1e293b; background: #f8fafc; }
+                .poster { border: 4px solid #2563eb; border-radius: 24px; padding: 40px; max-width: 450px; margin: 0 auto; background: white; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+                h1 { color: #2563eb; font-size: 2rem; margin-bottom: 8px; margin-top: 0; }
+                p { color: #64748b; font-size: 1rem; margin-bottom: 24px; }
+                img { width: 250px; height: 250px; border-radius: 12px; border: 1px solid #cbd5e1; padding: 10px; background: white; }
+                .footer { margin-top: 24px; font-weight: bold; color: #0f172a; font-size: 1.1rem; }
+                .link { font-size: 0.85rem; color: #64748b; word-break: break-all; margin-top: 10px; font-family: monospace; }
+            </style>
+        </head>
+        <body onload="window.print(); window.close();">
+            <div class="poster">
+                <h1>${shopName}</h1>
+                <p>Scan QR Code to View Live Digital Catalog & Menu</p>
+                <img src="${qrApiUrl}" alt="QR Code">
+                <div class="footer">Scan with your Phone Camera to Browse & Order</div>
+                ${shopAddress ? `<div style="font-size: 0.9rem; color: #475569; margin-top: 8px;">${shopAddress} | ${shopPhone}</div>` : ''}
+                <div class="link">${menuUrl}</div>
+            </div>
+        </body>
+        </html>
+    `);
+    printWin.document.close();
+}
+
+window.shareDigitalMenuWhatsApp = shareDigitalMenuWhatsApp;
+window.copyDigitalMenuLink = copyDigitalMenuLink;
+window.showDigitalMenuQRCode = showDigitalMenuQRCode;
+window.closeQRCodeModal = closeQRCodeModal;
+window.printQRCodePoster = printQRCodePoster;
