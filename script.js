@@ -65,7 +65,7 @@ function loadBranchData() {
     }
     sales = JSON.parse(localStorage.getItem('mediflow_sales')) || [];
     settings = JSON.parse(localStorage.getItem('mediflow_settings')) || {
-        shopName: 'T7 BillPro Pharma', shopAddress: '123 Medical Street, City Center', shopPhone: '+91 9876543210', shopLogo: '', printerType: '3inch', gstDefault: true, currency: '₹'
+        shopName: 'T7 BillPro', shopAddress: '123 Medical Street, City Center', shopPhone: '+91 9876543210', shopLogo: '', printerType: '3inch', gstDefault: true, currency: '₹'
     };
     purchases = JSON.parse(localStorage.getItem('mediflow_purchases')) || [];
     expenses = JSON.parse(localStorage.getItem('mediflow_expenses')) || [];
@@ -2503,7 +2503,7 @@ async function printShiftSummaryReceipt(actionType) {
     if (settings.printerType) document.body.classList.add(`print-${settings.printerType}`);
     
     const shopNameEl = document.getElementById('summary-shop-name');
-    if (shopNameEl) shopNameEl.textContent = settings.shopName || 'MEDIFLOW PHARMA';
+    if (shopNameEl) shopNameEl.textContent = settings.shopName || 'T7 BILLPRO';
     
     const typeEl = document.getElementById('summary-type');
     if (typeEl) typeEl.textContent = actionType === 'LOGIN' ? 'Login Summary' : 'Logout Summary';
@@ -4941,7 +4941,7 @@ function getDigitalMenuURL() {
 }
 
 function shareDigitalMenuWhatsApp() {
-    const shopName = settings.shopName || 'T7 BillPro Pharma';
+    const shopName = settings.shopName || 'T7 BillPro';
     const menuUrl = getDigitalMenuURL();
     const message = `Hello! Check out our live Digital Catalog & Menu for ${shopName}:\n\n🔗 ${menuUrl}\n\nYou can browse our live stock and place orders directly!`;
     const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
@@ -4974,7 +4974,7 @@ function showDigitalMenuQRCode() {
     
     if (qrImg) qrImg.src = qrApiUrl;
     if (qrUrlText) qrUrlText.textContent = menuUrl;
-    if (shopTitle) shopTitle.textContent = settings.shopName || 'T7 BillPro Pharma';
+    if (shopTitle) shopTitle.textContent = settings.shopName || 'T7 BillPro';
     
     modal.style.display = 'flex';
     if (typeof lucide !== 'undefined') lucide.createIcons();
@@ -4986,7 +4986,7 @@ function closeQRCodeModal() {
 }
 
 function printQRCodePoster() {
-    const shopName = settings.shopName || 'T7 BillPro Pharma';
+    const shopName = settings.shopName || 'T7 BillPro';
     const shopAddress = settings.shopAddress || '';
     const shopPhone = settings.shopPhone || '';
     const menuUrl = getDigitalMenuURL();

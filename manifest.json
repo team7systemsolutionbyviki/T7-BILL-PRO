@@ -1,7 +1,7 @@
 {
   "name": "T7 BillPro",
   "short_name": "T7 BillPro",
-  "description": "A modern web-based Pharmacy Point of Sale system.",
+  "description": "A modern web-based Point of Sale system.",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#0f172a",
