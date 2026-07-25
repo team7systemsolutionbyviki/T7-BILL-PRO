@@ -21,7 +21,7 @@ if (branches.length === 0) {
 }
 
 // Storage Interceptors for Multi-Branch
-const branchSpecificKeys = ['mediflow_products', 'mediflow_sales', 'mediflow_settings', 'mediflow_purchases', 'mediflow_expenses', 'mediflow_categories', 'mediflow_customers', 'mediflow_customer_payments', 'mediflow_suppliers', 'mediflow_supplier_payments', 'mediflow_held_carts', 'mediflow_amc'];
+const branchSpecificKeys = ['mediflow_products', 'mediflow_sales', 'mediflow_settings', 'mediflow_purchases', 'mediflow_expenses', 'mediflow_categories', 'mediflow_expense_categories', 'mediflow_customers', 'mediflow_customer_payments', 'mediflow_suppliers', 'mediflow_supplier_payments', 'mediflow_held_carts', 'mediflow_amc'];
 
 const originalGetItem = localStorage.getItem;
 localStorage.getItem = function(key) {
@@ -49,13 +49,19 @@ let cart = [];
 let heldCarts = [];
 
 function loadBranchData() {
-    products = JSON.parse(localStorage.getItem('mediflow_products')) || [];
-    if (products.length === 0) {
+    const storedProducts = localStorage.getItem('mediflow_products');
+    if (storedProducts === null) {
         products = [
             { id: 'P01', name: 'Paracetamol 500mg', category: 'Tablet', hsn: '3004', batch: 'BN1024', expiry: '2026-12-31', mrp: 40.00, salePrice: 35.00, stock: 150, gst: 12 },
             { id: 'P02', name: 'Amoxicillin 250mg', category: 'Capsule', hsn: '3004', batch: 'BN2025', expiry: '2026-06-15', mrp: 120.00, salePrice: 110.00, stock: 8, gst: 12 }
         ];
         localStorage.setItem('mediflow_products', JSON.stringify(products));
+    } else {
+        try {
+            products = JSON.parse(storedProducts) || [];
+        } catch (e) {
+            products = [];
+        }
     }
     sales = JSON.parse(localStorage.getItem('mediflow_sales')) || [];
     settings = JSON.parse(localStorage.getItem('mediflow_settings')) || {
@@ -74,7 +80,7 @@ function loadBranchData() {
     cart = [];
 }
 
-// --- Firebase Config (User to fill this) ---
+// --- Firebase Config & Synchronization ---
 const firebaseConfig = {
     apiKey: "AIzaSyDHWpCbtbs2G3_Gtm0-XKI2bxLoBG5TIDY",
     authDomain: "dical-billing-001.firebaseapp.com",
@@ -88,6 +94,7 @@ const firebaseConfig = {
 
 let db = null;
 let isFirebaseEnabled = false;
+let unsubscribeCloudListener = null;
 
 function initFirebase() {
     try {
@@ -96,12 +103,38 @@ function initFirebase() {
             db = firebase.firestore();
             isFirebaseEnabled = true;
             console.log("T7 BillPro Cloud Connected");
-            syncFromCloud();
+            syncFromCloud().then(() => {
+                setupCloudListener();
+            });
         }
     } catch (e) {
         console.error("Cloud Connection Error:", e);
     }
 }
+
+function initApp() {
+    try {
+        if (typeof renderDashboard === 'function') renderDashboard();
+        if (typeof renderProducts === 'function') renderProducts();
+        if (typeof renderProductDropdown === 'function') renderProductDropdown();
+        if (typeof renderSupplierDropdown === 'function') renderSupplierDropdown();
+        if (typeof renderSalesHistory === 'function') renderSalesHistory();
+        if (typeof renderPurchases === 'function') renderPurchases();
+        if (typeof renderExpenses === 'function') renderExpenses();
+        if (typeof renderCustomers === 'function') renderCustomers();
+        if (typeof renderSuppliers === 'function') renderSuppliers();
+        if (typeof renderAdmins === 'function') renderAdmins();
+        if (typeof renderBranches === 'function') renderBranches();
+        if (typeof renderCategoryManagement === 'function') renderCategoryManagement();
+        if (typeof renderExpenseCategoryManagement === 'function') renderExpenseCategoryManagement();
+        if (typeof switchSection === 'function' && typeof activeSection !== 'undefined') {
+            switchSection(activeSection);
+        }
+    } catch (e) {
+        console.error("Error in initApp:", e);
+    }
+}
+window.initApp = initApp;
 
 async function syncToCloud(collectionName, documentData) {
     if (!isFirebaseEnabled || !db) return;
@@ -109,6 +142,7 @@ async function syncToCloud(collectionName, documentData) {
         let docName = collectionName;
         if (collectionName === 'customerPayments') docName = 'customer_payments';
         if (collectionName === 'supplierPayments') docName = 'supplier_payments';
+        if (collectionName === 'expenseCategories') docName = 'expense_categories';
         
         const globalCols = ['admins', 'branches'];
         let fbDocName = globalCols.includes(collectionName) ? docName : `${currentBranchId}_${docName}`;
@@ -128,7 +162,7 @@ async function syncFromCloud() {
     if (!isFirebaseEnabled || !db) return;
     try {
         isSyncingFromCloud = true;
-        const collections = ['products', 'sales', 'settings', 'purchases', 'expenses', 'customers', 'suppliers', 'admins', 'supplierPayments', 'customerPayments', 'branches'];
+        const collections = ['products', 'sales', 'settings', 'purchases', 'expenses', 'categories', 'expense_categories', 'customers', 'suppliers', 'admins', 'supplierPayments', 'customerPayments', 'branches'];
         
         let hasUpdates = false;
         for (const col of collections) {
@@ -142,32 +176,31 @@ async function syncFromCloud() {
             const doc = await db.collection('mediflow_data').doc(fbDocName).get();
             if (doc.exists) {
                 const cloudData = doc.data().payload;
-                if (!cloudData) continue;
+                if (cloudData === undefined || cloudData === null) continue;
 
                 if (col === 'settings') {
                     settings = cloudData;
                     localStorage.setItem('mediflow_settings', JSON.stringify(settings));
                 } else if (col === 'branches') {
-                    branches = cloudData || [];
+                    branches = Array.isArray(cloudData) ? cloudData : [];
                     localStorage.setItem('mediflow_branches', JSON.stringify(branches));
                 } else {
-                    const arrayData = cloudData || [];
-                    if (arrayData.length > 0) {
-                        // Correctly update local let-declared variables
-                        if (col === 'products') products = arrayData;
-                        else if (col === 'sales') sales = arrayData;
-                        else if (col === 'purchases') purchases = arrayData;
-                        else if (col === 'expenses') expenses = arrayData;
-                        else if (col === 'customers') customers = arrayData;
-                        else if (col === 'suppliers') suppliers = arrayData;
-                        else if (col === 'admins') admins = arrayData;
-                        else if (col === 'supplierPayments') supplierPayments = arrayData;
-                        else if (col === 'customerPayments') customerPayments = arrayData;
+                    const arrayData = Array.isArray(cloudData) ? cloudData : [];
+                    if (col === 'products') products = arrayData;
+                    else if (col === 'sales') sales = arrayData;
+                    else if (col === 'purchases') purchases = arrayData;
+                    else if (col === 'expenses') expenses = arrayData;
+                    else if (col === 'categories') categories = arrayData;
+                    else if (col === 'expense_categories') expenseCategories = arrayData;
+                    else if (col === 'customers') customers = arrayData;
+                    else if (col === 'suppliers') suppliers = arrayData;
+                    else if (col === 'admins') admins = arrayData;
+                    else if (col === 'supplierPayments') supplierPayments = arrayData;
+                    else if (col === 'customerPayments') customerPayments = arrayData;
 
-                        window[col] = arrayData;
-                        let localKey = 'mediflow_' + (col === 'supplierPayments' ? 'supplier_payments' : (col === 'customerPayments' ? 'customer_payments' : col));
-                        localStorage.setItem(localKey, JSON.stringify(arrayData));
-                    }
+                    window[col] = arrayData;
+                    let localKey = 'mediflow_' + docName;
+                    localStorage.setItem(localKey, JSON.stringify(arrayData));
                 }
                 hasUpdates = true;
             }
@@ -184,24 +217,95 @@ async function syncFromCloud() {
     }
 }
 
+function setupCloudListener() {
+    if (!isFirebaseEnabled || !db) return;
+    try {
+        if (unsubscribeCloudListener) {
+            unsubscribeCloudListener();
+        }
+        unsubscribeCloudListener = db.collection('mediflow_data').onSnapshot((snapshot) => {
+            snapshot.docChanges().forEach((change) => {
+                if (change.type === "added" || change.type === "modified") {
+                    if (change.doc.metadata && change.doc.metadata.hasPendingWrites) {
+                        return;
+                    }
+                    if (isSyncingFromCloud) return;
+
+                    const docId = change.doc.id;
+                    const cloudData = change.doc.data().payload;
+                    if (cloudData === undefined || cloudData === null) return;
+
+                    const globalCols = ['admins', 'branches'];
+                    const isGlobal = globalCols.includes(docId);
+                    const isBranchDoc = docId.startsWith(`${currentBranchId}_`);
+
+                    if (!isGlobal && !isBranchDoc) return;
+
+                    isSyncingFromCloud = true;
+                    try {
+                        let colKey = docId;
+                        if (isBranchDoc) {
+                            colKey = docId.replace(`${currentBranchId}_`, '');
+                        }
+
+                        if (colKey === 'settings') {
+                            settings = cloudData;
+                            localStorage.setItem('mediflow_settings', JSON.stringify(settings));
+                        } else if (colKey === 'branches') {
+                            branches = Array.isArray(cloudData) ? cloudData : [];
+                            localStorage.setItem('mediflow_branches', JSON.stringify(branches));
+                        } else {
+                            const arrayData = Array.isArray(cloudData) ? cloudData : [];
+                            if (colKey === 'products') products = arrayData;
+                            else if (colKey === 'sales') sales = arrayData;
+                            else if (colKey === 'purchases') purchases = arrayData;
+                            else if (colKey === 'expenses') expenses = arrayData;
+                            else if (colKey === 'categories') categories = arrayData;
+                            else if (colKey === 'expense_categories') expenseCategories = arrayData;
+                            else if (colKey === 'customers') customers = arrayData;
+                            else if (colKey === 'suppliers') suppliers = arrayData;
+                            else if (colKey === 'admins') admins = arrayData;
+                            else if (colKey === 'supplier_payments') supplierPayments = arrayData;
+                            else if (colKey === 'customer_payments') customerPayments = arrayData;
+
+                            window[colKey] = arrayData;
+                            let localKey = 'mediflow_' + colKey;
+                            localStorage.setItem(localKey, JSON.stringify(arrayData));
+                        }
+                        initApp();
+                    } finally {
+                        isSyncingFromCloud = false;
+                    }
+                }
+            });
+        }, (err) => {
+            console.warn("Cloud realtime listener issue:", err);
+        });
+    } catch (e) {
+        console.error("Error setting up cloud listener:", e);
+    }
+}
+
 async function backupAllToCloud() {
     if (!isFirebaseEnabled || !db) {
         alert('Cloud backup is not connected.');
         return;
     }
     const btn = document.getElementById('cloud-backup-btn');
-    const originalText = btn ? btn.innerHTML : 'BACKUP TO CLOUD';
+    const originalText = btn ? btn.innerHTML : '<i data-lucide="cloud-upload"></i> BACKUP TO CLOUD';
     try {
         if (btn) {
             btn.disabled = true;
             btn.innerHTML = '<i data-lucide="loader" class="spin"></i> Backing up...';
-            lucide.createIcons();
+            if (typeof lucide !== 'undefined') lucide.createIcons();
         }
         await syncToCloud('products', { data: products });
         await syncToCloud('sales', { data: sales });
         await syncToCloud('settings', settings);
         await syncToCloud('purchases', { data: purchases });
         await syncToCloud('expenses', { data: expenses });
+        await syncToCloud('categories', { data: categories });
+        await syncToCloud('expenseCategories', { data: expenseCategories });
         await syncToCloud('customers', { data: customers });
         await syncToCloud('suppliers', { data: suppliers });
         await syncToCloud('admins', { data: admins });
@@ -220,6 +324,38 @@ async function backupAllToCloud() {
         }
     }
 }
+
+async function manualSyncFromCloud() {
+    if (!isFirebaseEnabled || !db) {
+        alert('Cloud sync is not connected.');
+        return;
+    }
+    const btn = document.getElementById('cloud-sync-btn');
+    const originalText = btn ? btn.innerHTML : '<i data-lucide="cloud-download"></i> SYNC FROM CLOUD';
+    try {
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="loader" class="spin"></i> Syncing...';
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        }
+        await syncFromCloud();
+        alert('Data successfully synced from cloud!');
+    } catch (e) {
+        alert('Sync failed: ' + e.message);
+        console.error(e);
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        }
+    }
+}
+
+window.backupAllToCloud = backupAllToCloud;
+window.manualSyncFromCloud = manualSyncFromCloud;
+window.syncFromCloud = syncFromCloud;
+window.syncToCloud = syncToCloud;
 
 let activeSection = 'dashboard';
 let currentPayMode = 'Cash';
@@ -242,6 +378,8 @@ localStorage.setItem = function(key, value) {
             'mediflow_settings': 'settings',
             'mediflow_purchases': 'purchases',
             'mediflow_expenses': 'expenses',
+            'mediflow_categories': 'categories',
+            'mediflow_expense_categories': 'expenseCategories',
             'mediflow_customers': 'customers',
             'mediflow_suppliers': 'suppliers',
             'mediflow_admins': 'admins',
@@ -263,12 +401,11 @@ localStorage.setItem = function(key, value) {
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
+    checkLoginStatus();
     initFirebase();
     lucide.createIcons();
     applySavedSidebarState();
-    checkLoginStatus();
     setupLoginHandler();
-    // initApp is called inside checkLoginStatus
     setupEventListeners();
 });
 

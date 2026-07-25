@@ -1126,11 +1126,13 @@
                                     <label>Currency Symbol</label>
                                     <input type="text" id="set-currency" class="form-control" value="₹">
                                 </div>
-                                <div class="form-group"
-                                    style="margin-top: 1rem; padding: 1rem; background: #e0f2fe; border-radius: 8px;">
-                                    <button type="button" id="cloud-backup-btn" class="btn btn-primary"
-                                        onclick="backupAllToCloud()" style="width: 100%;"><i
-                                            data-lucide="cloud-upload"></i> BACKUP TO CLOUD</button>
+                                <div class="form-group" style="margin-top: 1rem; padding: 1rem; background: #e0f2fe; border-radius: 8px; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                    <button type="button" id="cloud-backup-btn" class="btn btn-primary" onclick="backupAllToCloud()" style="flex: 1; min-width: 140px;">
+                                        <i data-lucide="cloud-upload"></i> BACKUP TO CLOUD
+                                    </button>
+                                    <button type="button" id="cloud-sync-btn" class="btn btn-secondary" onclick="manualSyncFromCloud()" style="flex: 1; min-width: 140px;">
+                                        <i data-lucide="cloud-download"></i> SYNC FROM CLOUD
+                                    </button>
                                 </div>
                             </div>
                         </div>
