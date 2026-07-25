@@ -1,0 +1,1842 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>T7 BillPro | Medical Billing Excellence</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/png" href="icon-512.png">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="style.css">
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+</head>
+
+<body data-theme="light">
+    <!-- Login Screen -->
+    <div id="login-screen">
+        <div class="login-card">
+            <div class="login-header">
+                <div class="logo-icon" style="background: var(--primary-color); color: white; margin: 0 auto 1rem;">
+                    <i data-lucide="plus-square"></i>
+                </div>
+                <h2>T7 BillPro Admin</h2>
+                <p style="color: var(--text-muted); font-size: 0.9rem;">Please enter your credentials</p>
+            </div>
+            <form id="login-form" style="margin-top: 2rem;">
+                <div class="form-group">
+                    <label>Username</label>
+                    <input type="text" id="login-username" class="form-control" required placeholder="Enter username">
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="login-password" class="form-control" required placeholder="••••••••">
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem; padding: 0.75rem;">
+                    Login
+                </button>
+                <div id="login-error"
+                    style="color: var(--danger-color); font-size: 0.85rem; margin-top: 1rem; text-align: center; display: none;">
+                    Invalid username or password
+                </div>
+            </form>
+        </div>
+        <div
+            style="position: absolute; bottom: 20px; width: 100%; text-align: center; color: var(--text-muted); font-size: 0.85rem; font-weight: 500; letter-spacing: 0.5px;">
+            DEVELOPED BY VIGNESH | CONTACT: 9360039283
+        </div>
+    </div>
+
+    <!-- Main Container -->
+    <div id="app-container" style="display: none;">
+        <!-- Sidebar -->
+        <aside id="main-sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <div class="logo-icon">
+                        <i data-lucide="plus-square"></i>
+                    </div>
+                    <div class="logo-text">T7 BillPro</div>
+                </div>
+                <button id="hide-menu-btn" class="hide-menu-btn" title="Hide / Collapse Menu">
+                    <i data-lucide="panel-left-close"></i>
+                </button>
+            </div>
+
+            <nav>
+                <button class="nav-item active" data-section="dashboard" title="Shortcut: Alt+D">
+                    <i data-lucide="layout-dashboard"></i>
+                    <span class="nav-label">Dashboard</span> <span class="shortcut-key">Alt+D</span>
+                </button>
+                <button class="nav-item" data-section="billing" title="Shortcut: Alt+B (or F2)">
+                    <i data-lucide="calculator"></i>
+                    <span class="nav-label">Billing</span> <span class="shortcut-key">F2</span>
+                </button>
+                <button class="nav-item" data-section="products" title="Shortcut: Alt+P (or F4)">
+                    <i data-lucide="package"></i>
+                    <span class="nav-label">Products</span> <span class="shortcut-key">F4</span>
+                </button>
+                <button class="nav-item" data-section="purchase" title="Shortcut: Alt+U">
+                    <i data-lucide="shopping-bag"></i>
+                    <span class="nav-label">Purchase</span> <span class="shortcut-key">Alt+U</span>
+                </button>
+                <button class="nav-item" data-section="expenses" title="Shortcut: Alt+E">
+                    <i data-lucide="wallet"></i>
+                    <span class="nav-label">Expenses</span> <span class="shortcut-key">Alt+E</span>
+                </button>
+                <button class="nav-item" data-section="customers" title="Shortcut: Alt+C">
+                    <i data-lucide="users"></i>
+                    <span class="nav-label">Customers</span> <span class="shortcut-key">Alt+C</span>
+                </button>
+                <button class="nav-item" data-section="suppliers" title="Shortcut: Alt+S">
+                    <i data-lucide="truck"></i>
+                    <span class="nav-label">Suppliers</span> <span class="shortcut-key">Alt+S</span>
+                </button>
+                <button class="nav-item" data-section="sales" title="Shortcut: Alt+H">
+                    <i data-lucide="history"></i>
+                    <span class="nav-label">Sales History</span> <span class="shortcut-key">Alt+H</span>
+                </button>
+                <button class="nav-item" data-section="reports" title="Shortcut: Alt+R">
+                    <i data-lucide="pie-chart"></i>
+                    <span class="nav-label">Reports</span> <span class="shortcut-key">Alt+R</span>
+                </button>
+                <button class="nav-item" data-section="menu-card" title="Shortcut: Alt+M">
+                    <i data-lucide="book-open"></i>
+                    <span class="nav-label">Menu Card</span> <span class="shortcut-key">Alt+M</span>
+                </button>
+                <button class="nav-item" data-section="digital-orders" title="Shortcut: Alt+O">
+                    <i data-lucide="clipboard-list"></i>
+                    <span class="nav-label">Digital Orders</span> <span class="shortcut-key">Alt+O</span>
+                </button>
+                <button class="nav-item" data-section="users" id="nav-users" style="display: none;"
+                    title="Shortcut: Alt+A">
+                    <i data-lucide="user-cog"></i>
+                    <span class="nav-label">Staff & Admins</span> <span class="shortcut-key">Alt+A</span>
+                </button>
+                <button class="nav-item" data-section="branches" id="nav-branches" style="display: none;"
+                    title="Shortcut: Alt+B">
+                    <i data-lucide="git-branch"></i>
+                    <span class="nav-label">Branches</span>
+                </button>
+                <button class="nav-item" data-section="settings" title="Shortcut: Alt+T">
+                    <i data-lucide="settings"></i>
+                    <span class="nav-label">Settings</span> <span class="shortcut-key">Alt+T</span>
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <button class="nav-item" id="logout-btn">
+                    <i data-lucide="log-out"></i>
+                    <span class="nav-label">Logout</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main>
+            <div
+                style="text-align: center; padding: 5px; font-size: 0.75rem; color: var(--text-muted); font-weight: 600; border-bottom: 1px solid var(--border-color); background: var(--bg-color);">
+                DEVELOPED BY VIGNESH | CONTACT: 9360039283
+            </div>
+            <header class="header-top">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <button id="sidebar-toggle-btn" class="sidebar-toggle-btn" title="Toggle Navigation">
+                        <i data-lucide="menu"></i>
+                    </button>
+                    <div class="page-title">
+                        <h1 id="section-title">Dashboard</h1>
+                    </div>
+                </div>
+                <div class="actions-top">
+                    <div id="global-branch-container" style="display: none; margin-right: 15px;">
+                        <select id="global-branch-selector" class="form-control"
+                            style="width: auto; background: var(--primary-light); color: var(--primary-color); font-weight: 600; border: 1px solid var(--primary-color); border-radius: 8px;"></select>
+                    </div>
+                    <div class="theme-toggle" id="theme-toggle">
+                        <i data-lucide="sun" id="theme-icon"></i>
+                    </div>
+                    <div class="user-profile">
+                        <span id="current-date"></span>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Sections -->
+
+            <!-- Dashboard Section -->
+            <section id="dashboard" class="page-section active">
+                <div class="stats-grid">
+                    <div class="card stat-card">
+                        <div class="stat-icon"
+                            style="background-color: var(--primary-light); color: var(--primary-color);">
+                            <i data-lucide="shopping-cart"></i>
+                        </div>
+                        <div class="stat-info">
+                            <div class="value" id="stat-sales-count">0</div>
+                            <div class="label">Total Sales Today</div>
+                        </div>
+                    </div>
+                    <div class="card stat-card">
+                        <div class="stat-icon"
+                            style="background-color: var(--secondary-light); color: var(--secondary-color);">
+                            <i data-lucide="indian-rupee"></i>
+                        </div>
+                        <div class="stat-info">
+                            <div class="value" id="stat-revenue">₹0.00</div>
+                            <div class="label">Total Revenue Today</div>
+                        </div>
+                    </div>
+                    <div class="card stat-card">
+                        <div class="stat-icon" style="background-color: #fee2e2; color: #dc2626;">
+                            <i data-lucide="wallet"></i>
+                        </div>
+                        <div class="stat-info">
+                            <div class="value" id="stat-expenses">₹0.00</div>
+                            <div class="label">Today's Expenses</div>
+                        </div>
+                    </div>
+                    <div class="card stat-card">
+                        <div class="stat-icon" style="background-color: #fef3c7; color: #d97706;">
+                            <i data-lucide="shopping-cart"></i>
+                        </div>
+                        <div class="stat-info">
+                            <div class="value" id="stat-purchases">₹0.00</div>
+                            <div class="label">Today's Purchases</div>
+                        </div>
+                    </div>
+                    <div class="card stat-card">
+                        <div class="stat-icon" style="background-color: #dcfce7; color: #16a34a;">
+                            <i data-lucide="trending-up"></i>
+                        </div>
+                        <div class="stat-info">
+                            <div class="value" id="stat-profit">₹0.00</div>
+                            <div class="label">Today's Net Profit</div>
+                        </div>
+                    </div>
+                    <div class="card stat-card">
+                        <div class="stat-icon" style="background-color: #fef3c7; color: #d97706;">
+                            <i data-lucide="package"></i>
+                        </div>
+                        <div class="stat-info">
+                            <div class="value" id="stat-low-stock">0</div>
+                            <div class="label">Low Stock Items</div>
+                        </div>
+                    </div>
+                    <div class="card stat-card">
+                        <div class="stat-icon" style="background-color: #fee2e2; color: #dc2626;">
+                            <i data-lucide="alert-triangle"></i>
+                        </div>
+                        <div class="stat-info">
+                            <div class="value" id="stat-expired">0</div>
+                            <div class="label">Near Expiry</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-top: 2rem;">
+                    <h3 style="margin-bottom: 1.5rem;">Recent Sales</h3>
+                    <div class="table-responsive">
+                        <table id="recent-sales-table">
+                            <thead>
+                                <tr>
+                                    <th>Invoice</th>
+                                    <th>Customer</th>
+                                    <th>Items</th>
+                                    <th>Total</th>
+                                    <th>Date</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Recent sales injected here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Billing Section -->
+            <section id="billing" class="page-section">
+                <div class="billing-layout">
+                    <div class="cart-section card">
+                        <div style="display: flex; gap: 1rem; align-items: center;">
+                            <div class="search-container">
+                                <i data-lucide="search" class="search-icon"></i>
+                                <input type="text" id="billing-search" class="form-control search-input"
+                                    placeholder="Search product name or scan barcode..." autocomplete="off">
+                                <div id="search-results" class="search-results"></div>
+                            </div>
+                            <button class="btn btn-outline" onclick="toggleReturnMode()" id="return-mode-btn"
+                                style="border-color: var(--danger-color); color: var(--danger-color);">
+                                <i data-lucide="corner-down-left"></i> Return Bill
+                            </button>
+                            <button class="btn btn-outline" onclick="holdCurrentCart()"
+                                style="border-color: var(--warning-color); color: var(--warning-color);">
+                                <i data-lucide="pause-circle"></i> Hold Bill <span class="shortcut-key">Alt+O</span>
+                            </button>
+                            <button class="btn btn-outline" id="clear-cart-btn">
+                                <i data-lucide="trash-2"></i> Clear Cart <span class="shortcut-key">Alt+X</span>
+                            </button>
+                        </div>
+
+                        <!-- Cart Tabs Section -->
+                        <div id="cart-tabs-container"
+                            style="display: flex; gap: 0.5rem; margin-top: 1rem; overflow-x: auto; padding-bottom: 5px;">
+                            <!-- Tab buttons injected here -->
+                        </div>
+
+                        <div class="cart-table-wrapper">
+                            <table id="cart-table">
+                                <thead>
+                                    <tr>
+                                        <th>Item Name</th>
+                                        <th>Batch</th>
+                                        <th>Price</th>
+                                        <th>Qty</th>
+                                        <th>Unit</th>
+                                        <th>GST %</th>
+                                        <th>Total</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Cart items injected here -->
+                                </tbody>
+                            </table>
+                        </div>
+
+                    </div>
+
+                    <div class="summary-section card summary-card">
+                        <h3>Bill Summary</h3>
+
+                        <div class="form-group">
+                            <label>Invoice Number</label>
+                            <input type="text" id="invoice-number" class="form-control" readonly>
+                        </div>
+
+                        <div
+                            style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem; position: relative;">
+                            <div class="form-group" style="margin-bottom: 0; position: relative;">
+                                <label style="font-size: 0.75rem; margin-bottom: 2px;">Customer Name</label>
+                                <input type="text" id="customer-name" class="form-control" placeholder="Optional"
+                                    style="padding: 0.4rem 0.75rem;" autocomplete="off">
+                                <div id="customer-suggestions" class="search-results" style="top: 100%; width: 100%;">
+                                </div>
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label style="font-size: 0.75rem; margin-bottom: 2px;">Phone Number</label>
+                                <input type="text" id="customer-phone" class="form-control" placeholder="Optional"
+                                    style="padding: 0.4rem 0.75rem;">
+                            </div>
+                        </div>
+
+                        <div class="billing-options" style="margin-bottom: 0;">
+                            <label
+                                style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; cursor: pointer; font-size: 0.85rem;">
+                                <input type="checkbox" id="gst-toggle" checked> Include GST in calculation
+                            </label>
+                        </div>
+
+                        <div class="summary-details">
+                            <div class="summary-row">
+                                <span>Subtotal</span>
+                                <span id="summary-subtotal">₹0.00</span>
+                            </div>
+                            <div class="summary-row">
+                                <span>GST Total</span>
+                                <span id="summary-gst">₹0.00</span>
+                            </div>
+                            <div class="summary-row">
+                                <span style="display: flex; align-items: center; gap: 0.5rem;">
+                                    Discount
+                                    <select id="discount-type" style="padding: 2px; border-radius: 4px;">
+                                        <option value="amount">₹</option>
+                                        <option value="percent">%</option>
+                                    </select>
+                                </span>
+                                <input type="number" id="discount-input" value="0"
+                                    style="width: 80px; text-align: right; border: 1px solid var(--border-color); border-radius: 4px; padding: 2px 5px;">
+                            </div>
+                            <div class="summary-row summary-total" style="margin-bottom: 5px;">
+                                <strong>Grand Total</strong>
+                                <strong class="grand-total-text" id="summary-grand-total">₹0.00</strong>
+                            </div>
+                            <div
+                                style="display: flex; flex-direction: column; gap: 8px; padding-top: 8px; border-top: 1px dashed var(--border-color); margin-top: 8px;">
+                                <span style="font-size: 0.85rem; font-weight: 600;">Payment Mode</span>
+                                <div style="display: flex; gap: 8px; width: 100%;">
+                                    <button type="button" class="btn btn-outline pay-mode active" data-mode="Cash"
+                                        onclick="setPayMode('Cash', this)"
+                                        style="flex: 1; padding: 8px 5px; font-size: 13px; font-weight: 600; justify-content: center;">Cash
+                                        <span class="shortcut-key" style="margin-left: 2px;">Alt+1</span></button>
+                                    <button type="button" class="btn btn-outline pay-mode" data-mode="GPay"
+                                        onclick="setPayMode('GPay', this)"
+                                        style="flex: 1; padding: 8px 5px; font-size: 13px; font-weight: 600; justify-content: center;">GPay
+                                        <span class="shortcut-key" style="margin-left: 2px;">Alt+2</span></button>
+                                    <button type="button" class="btn btn-outline pay-mode" data-mode="Credit"
+                                        onclick="setPayMode('Credit', this)"
+                                        style="flex: 1; padding: 8px 5px; font-size: 13px; font-weight: 600; justify-content: center;">Credit
+                                        <span class="shortcut-key" style="margin-left: 2px;">Alt+3</span></button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem;">
+                            <button class="btn btn-primary" id="generate-bill-btn"
+                                title="Shortcut: End or F8 or Ctrl+Enter">
+                                <i data-lucide="printer"></i> Print Bill <span class="shortcut-key">End</span>
+                            </button>
+                            <button class="btn btn-secondary" id="save-bill-btn">
+                                <i data-lucide="save"></i> Save Sale
+                            </button>
+                        </div>
+                        <button class="btn" id="whatsapp-bill-btn"
+                            style="background-color: #25d366; color: white; margin-top: 0.75rem; width: 100%;">
+                            <i data-lucide="message-square"></i> WhatsApp Bill
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Products Section -->
+            <section id="products" class="page-section">
+                <div class="card">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                        <div class="search-container">
+                            <i data-lucide="search" class="search-icon"></i>
+                            <input type="text" id="product-list-search" class="form-control search-input"
+                                placeholder="Search by name or category...">
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                            <button class="btn btn-outline" onclick="downloadSampleCSVTemplate()">
+                                <i data-lucide="file-text" style="width: 16px;"></i> Sample CSV Template
+                            </button>
+                            <button class="btn btn-outline" onclick="exportProductsCSV()">
+                                <i data-lucide="file-spreadsheet" style="width: 16px;"></i> Export CSV
+                            </button>
+                            <button class="btn btn-outline" onclick="exportData()">
+                                <i data-lucide="download" style="width: 16px;"></i> Backup (JSON)
+                            </button>
+                            <button class="btn btn-outline" id="import-products-btn">
+                                <i data-lucide="upload" style="width: 16px;"></i> Import (CSV/JSON)
+                            </button>
+                            <input type="file" id="product-import-input" style="display: none;" accept=".json,.csv">
+                            <button class="btn btn-primary" id="open-add-product">
+                                <i data-lucide="plus"></i> Add New Product <span class="shortcut-key">Alt+N</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table id="products-table">
+                            <thead>
+                                <tr>
+                                    <th>Product Name</th>
+                                    <th>Category</th>
+                                    <th>Unit</th>
+                                    <th>HSN</th>
+                                    <th>Batch</th>
+                                    <th>Expiry</th>
+                                    <th>MRP</th>
+                                    <th>Sale Price</th>
+                                    <th>Stock</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Product list injected here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Purchase Section -->
+            <section id="purchase" class="page-section">
+                <div class="grid-2" style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+                    <div class="card">
+                        <h3 style="margin-bottom: 1.5rem;">New Purchase Entry</h3>
+                        <form id="purchase-form">
+                            <div class="form-group">
+                                <label>Product *</label>
+                                <select id="pur-product" class="form-control" required>
+                                    <option value="">Select Product</option>
+                                    <!-- Products injected here -->
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Supplier Name</label>
+                                <select id="pur-supplier" class="form-control">
+                                    <option value="">Select Supplier (Optional)</option>
+                                    <!-- Suppliers injected here -->
+                                </select>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                                <div class="form-group">
+                                    <label>Invoice No</label>
+                                    <input type="text" id="pur-invoice" class="form-control">
+                                </div>
+                                <div class="form-group">
+                                    <label>Date</label>
+                                    <input type="date" id="pur-date" class="form-control" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>Quantity / Weight</label>
+                                    <input type="number" id="pur-qty" class="form-control" step="0.001" min="0.001"
+                                        required>
+                                </div>
+                                <div class="form-group">
+                                    <label>Purchase Price *</label>
+                                    <input type="number" step="0.01" id="pur-price" class="form-control" required>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary"
+                                style="width: 100%; justify-content: center; margin-top: 1rem;">
+                                <i data-lucide="plus"></i> Add Purchase
+                            </button>
+                        </form>
+                    </div>
+                    <div class="card">
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                            <h3>Purchase History</h3>
+                            <button class="btn btn-outline" onclick="exportPurchasesCSV()"
+                                style="padding: 5px 10px; font-size: 0.8rem;">
+                                <i data-lucide="file-spreadsheet"></i> CSV
+                            </button>
+                        </div>
+                        <div class="table-responsive" style="max-height: 480px; overflow-y: auto;">
+                            <table id="purchase-table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Product</th>
+                                        <th>Qty</th>
+                                        <th>Total</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Purchase history injected here -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Expenses Section -->
+            <section id="expenses" class="page-section">
+                <div class="grid-2" style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+                    <div class="card">
+                        <h3 style="margin-bottom: 1.5rem;">Add New Expense</h3>
+                        <form id="expense-form">
+                            <div class="form-group">
+                                <label>Expense Category *</label>
+                                <select id="exp-category" class="form-control" required>
+                                    <option value="Rent">Rent</option>
+                                    <option value="Electricity">Electricity</option>
+                                    <option value="Salary">Salary</option>
+                                    <option value="Maintenance">Maintenance</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Description</label>
+                                <input type="text" id="exp-desc" class="form-control"
+                                    placeholder="e.g. Monthly Electricity Bill">
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                                <div class="form-group">
+                                    <label>Amount *</label>
+                                    <input type="number" step="0.01" id="exp-amount" class="form-control" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>Date *</label>
+                                    <input type="date" id="exp-date" class="form-control" required>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-secondary"
+                                style="width: 100%; justify-content: center; margin-top: 1rem;">
+                                <i data-lucide="wallet"></i> Save Expense
+                            </button>
+                        </form>
+                    </div>
+                    <div class="card">
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                            <h3>Recent Expenses</h3>
+                            <button class="btn btn-outline" onclick="exportExpensesCSV()"
+                                style="padding: 5px 10px; font-size: 0.8rem;">
+                                <i data-lucide="file-spreadsheet"></i> CSV
+                            </button>
+                        </div>
+                        <div class="table-responsive" style="max-height: 480px; overflow-y: auto;">
+                            <table id="expenses-table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Category</th>
+                                        <th>Amount</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Expense history injected here -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Customers Section -->
+            <section id="customers" class="page-section">
+                <div class="card">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                        <div class="search-container">
+                            <i data-lucide="search" class="search-icon"></i>
+                            <input type="text" id="customer-list-search" class="form-control search-input"
+                                placeholder="Search by name or phone...">
+                        </div>
+                        <button class="btn btn-primary" onclick="openCustomerModal()">
+                            <i data-lucide="user-plus"></i> Add New Customer <span class="shortcut-key">Alt+N</span>
+                        </button>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table id="customers-table">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Phone Number</th>
+                                    <th>Total Visits</th>
+                                    <th>Total Spent</th>
+                                    <th>Paid</th>
+                                    <th>Credit (Balance)</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Customer list injected here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Suppliers Section -->
+            <section id="suppliers" class="page-section">
+                <div class="card">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                        <div class="search-container">
+                            <i data-lucide="search" class="search-icon"></i>
+                            <input type="text" id="supplier-list-search" class="form-control search-input"
+                                placeholder="Search by name or phone...">
+                        </div>
+                        <button class="btn btn-primary" onclick="openSupplierModal()">
+                            <i data-lucide="truck"></i> Add New Supplier <span class="shortcut-key">Alt+N</span>
+                        </button>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table id="suppliers-table">
+                            <thead>
+                                <tr>
+                                    <th>Supplier Name</th>
+                                    <th>Phone</th>
+                                    <th>Total Purchases</th>
+                                    <th>Total Paid</th>
+                                    <th>Balance (Due)</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Supplier list injected here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Sales History Section -->
+            <section id="sales" class="page-section">
+                <div class="card">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                        <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label>From Date</label>
+                                <input type="date" id="sale-date-from" class="form-control">
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label>To Date</label>
+                                <input type="date" id="sale-date-to" class="form-control">
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0; min-width: 250px;">
+                                <label>Search Invoice / Customer</label>
+                                <input type="text" id="sale-search" class="form-control"
+                                    placeholder="Inv. No, Name, or Mobile">
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button class="btn btn-outline" onclick="exportSalesCSV()">
+                                <i data-lucide="file-spreadsheet"></i> Export CSV
+                            </button>
+                            <button class="btn btn-outline" id="export-sales">
+                                <i data-lucide="download"></i> Backup (JSON)
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table id="sales-history-table">
+                            <thead>
+                                <tr>
+                                    <th>Invoice #</th>
+                                    <th>Date & Time</th>
+                                    <th>Customer</th>
+                                    <th>Payment</th>
+                                    <th>Amount</th>
+                                    <th>Items</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Sales history injected here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Reports Section -->
+            <section id="reports" class="page-section">
+                <div class="card" style="margin-bottom: 20px;">
+                    <div style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap;">
+                        <div class="form-group" style="flex: 1; min-width: 200px; margin-bottom: 0;">
+                            <label>Report Type</label>
+                            <select id="report-type" class="form-control" onchange="generateReport()">
+                                <option value="stock">Stock Report</option>
+                                <option value="sales_all">Total Sales Report</option>
+                                <option value="sales_cash">Cash Sales Report</option>
+                                <option value="sales_gpay">GPay Sales Report</option>
+                                <option value="sales_credit">Customer Credit Report</option>
+                                <option value="purchases">Purchases Report</option>
+                                <option value="expenses">Expenses Report</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="flex: 1; min-width: 150px; margin-bottom: 0;">
+                            <label>Start Date</label>
+                            <input type="date" id="report-start" class="form-control">
+                        </div>
+                        <div class="form-group" style="flex: 1; min-width: 150px; margin-bottom: 0;">
+                            <label>End Date</label>
+                            <input type="date" id="report-end" class="form-control">
+                        </div>
+                        <button class="btn btn-primary" onclick="generateReport()">Generate</button>
+                        <button class="btn btn-secondary" onclick="exportReportToCSV()">Export CSV</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3 id="report-table-title" style="margin-bottom: 15px;">Stock Report</h3>
+                    <div class="table-responsive">
+                        <table id="report-table">
+                            <thead id="report-table-head">
+                                <!-- Dynamic Headers -->
+                            </thead>
+                            <tbody id="report-table-body">
+                                <!-- Dynamic Body -->
+                            </tbody>
+                            <tfoot id="report-table-foot" style="font-weight: bold; background: var(--bg-color);">
+                                <!-- Dynamic Footer -->
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Menu Card Section -->
+            <section id="menu-card" class="page-section">
+                <div class="menu-card-container">
+                    <!-- Hero Header & Quick Stats -->
+                    <div class="menu-card-hero">
+                        <div class="hero-content">
+                            <div class="hero-badge"><i data-lucide="sparkles"></i> Live Medical Catalog</div>
+                            <h2>Digital Menu Card</h2>
+                            <p>Browse pharmaceutical inventory with live stock status and instant billing integration.</p>
+                        </div>
+                        <div class="menu-kpi-grid">
+                            <div class="kpi-mini-card">
+                                <div class="kpi-icon" style="background: var(--primary-light); color: var(--primary-color);">
+                                    <i data-lucide="package"></i>
+                                </div>
+                                <div class="kpi-info">
+                                    <span id="menu-kpi-total" class="kpi-num">0</span>
+                                    <span class="kpi-lbl">Total Items</span>
+                                </div>
+                            </div>
+                            <div class="kpi-mini-card">
+                                <div class="kpi-icon" style="background: var(--secondary-light); color: var(--secondary-color);">
+                                    <i data-lucide="check-circle-2"></i>
+                                </div>
+                                <div class="kpi-info">
+                                    <span id="menu-kpi-instock" class="kpi-num">0</span>
+                                    <span class="kpi-lbl">In Stock</span>
+                                </div>
+                            </div>
+                            <div class="kpi-mini-card">
+                                <div class="kpi-icon" style="background: #fef3c7; color: #d97706;">
+                                    <i data-lucide="tags"></i>
+                                </div>
+                                <div class="kpi-info">
+                                    <span id="menu-kpi-categories" class="kpi-num">0</span>
+                                    <span class="kpi-lbl">Categories</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Search & Filter Controls Bar -->
+                    <div class="menu-controls-bar">
+                        <div class="menu-search-wrapper">
+                            <i data-lucide="search" class="search-icon"></i>
+                            <input type="text" id="menu-card-search" placeholder="Search medicine name, category, barcode..." class="form-control">
+                            <button id="menu-search-clear" class="btn-clear-search" style="display: none;" title="Clear search">
+                                <i data-lucide="x"></i>
+                            </button>
+                        </div>
+                        <div class="menu-view-options">
+                            <button class="view-btn active" id="btn-view-grid" title="Grid View">
+                                <i data-lucide="layout-grid"></i>
+                            </button>
+                            <button class="view-btn" id="btn-view-list" title="Compact List View">
+                                <i data-lucide="list"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Category Pills Filter Bar -->
+                    <div id="menu-category-pills" class="category-pills-bar">
+                        <!-- Category pills will be injected dynamically -->
+                    </div>
+
+                    <!-- Dynamic Menu Grid Content -->
+                    <div id="menu-card-content" class="menu-card-content grid-layout">
+                        <!-- Dynamic Cards injected here -->
+                    </div>
+
+                    <!-- Floating Order Bar / Drawer -->
+                    <div id="menu-order-drawer" class="menu-order-drawer">
+                        <div class="drawer-info">
+                            <div class="drawer-icon">
+                                <i data-lucide="shopping-bag"></i>
+                                <span id="menu-drawer-badge" class="drawer-badge">0</span>
+                            </div>
+                            <div>
+                                <div class="drawer-title"><span id="menu-drawer-count">0 Items</span> in Digital Cart</div>
+                                <div id="menu-drawer-total" class="drawer-price">₹0.00</div>
+                            </div>
+                        </div>
+                        <div class="drawer-actions">
+                            <button type="button" class="btn btn-outline" onclick="clearMenuOrder()" style="color: var(--danger-color); border-color: var(--danger-color);">
+                                <i data-lucide="trash-2"></i> Clear
+                            </button>
+                            <button type="button" class="btn btn-primary" onclick="openMenuOrderCheckoutModal()">
+                                <i data-lucide="shopping-cart"></i> Checkout / Place Order
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Digital Orders Section -->
+            <section id="digital-orders" class="page-section">
+                <div class="card">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+                        <div>
+                            <h3 style="margin-bottom: 0.25rem;"><i data-lucide="clipboard-list" style="vertical-align: middle; color: var(--primary-color);"></i> Digital Menu Orders</h3>
+                            <p style="color: var(--text-muted); font-size: 0.88rem;">Manage customer orders placed from the Digital Menu Card and load them directly into Billing.</p>
+                        </div>
+                        <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+                            <select id="digital-orders-status-filter" class="form-control" style="width: 160px;">
+                                <option value="ALL">All Orders</option>
+                                <option value="Pending" selected>Pending Orders</option>
+                                <option value="Billed">Billed Orders</option>
+                            </select>
+                            <input type="text" id="digital-orders-search" class="form-control" placeholder="Search order, customer..." style="width: 220px;">
+                        </div>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table id="digital-orders-table">
+                            <thead>
+                                <tr>
+                                    <th>Order Ref</th>
+                                    <th>Date & Time</th>
+                                    <th>Customer Info</th>
+                                    <th>Type / Ref</th>
+                                    <th>Items Ordered</th>
+                                    <th>Total Amount</th>
+                                    <th>Status</th>
+                                    <th style="text-align: right;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="digital-orders-table-body">
+                                <!-- Dynamic rows injected here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Users Section -->
+            <section id="users" class="page-section">
+                <div class="card">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                        <h3>Staff & Admin Administration</h3>
+                        <button class="btn btn-primary" id="create-user-btn" onclick="openAdminModal()">
+                            <i data-lucide="user-plus"></i> Create New User
+                        </button>
+                    </div>
+                    <div class="table-responsive">
+                        <table id="admins-table">
+                            <thead>
+                                <tr>
+                                    <th>Username</th>
+                                    <th>Role</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Admins list injected here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Branches Section -->
+            <section id="branches" class="page-section">
+                <div class="card">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                        <h3>Branch Management</h3>
+                        <button class="btn btn-primary" onclick="openBranchModal()">
+                            <i data-lucide="plus"></i> Add New Branch
+                        </button>
+                    </div>
+                    <div class="table-responsive">
+                        <table id="branches-table">
+                            <thead>
+                                <tr>
+                                    <th>Branch Name</th>
+                                    <th>Branch ID</th>
+                                    <th>Location</th>
+                                    <th>AMC Status</th>
+                                    <th>Status</th>
+                                    <th style="text-align: right;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Branches injected here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Settings Section -->
+            <section id="settings" class="page-section">
+                <!-- AMC Settings (Super Admin Only) -->
+                <div id="amc-admin-panel" class="card"
+                    style="max-width: 800px; margin-bottom: 2rem; display: none; border: 2px solid var(--danger-color);">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                        <h3 style="color: var(--danger-color); margin: 0;"><i data-lucide="shield-alert"
+                                style="vertical-align: middle;"></i> Super Admin: AMC Subscription</h3>
+                        <button class="btn btn-outline" type="button"
+                            onclick="document.getElementById('amc-form-container').style.display = document.getElementById('amc-form-container').style.display === 'none' ? 'block' : 'none'"
+                            style="border-color: var(--primary-color); color: var(--primary-color);">
+                            <i data-lucide="edit"></i> Renew / Edit Plan
+                        </button>
+                    </div>
+
+                    <div id="super-amc-status"
+                        style="margin-bottom: 1.5rem; padding: 1rem; background: var(--bg-color); border-radius: 5px; font-size: 1.1rem; line-height: 1.6;">
+                        <p><strong>Current Plan:</strong> <span id="super-amc-plan">---</span></p>
+                        <p><strong>Days Remaining:</strong> <span id="super-amc-days"
+                                style="font-weight: bold;">---</span></p>
+                    </div>
+
+                    <div id="amc-form-container"
+                        style="display: none; border-top: 1px solid var(--border-color); padding-top: 1.5rem;">
+                        <div style="margin-bottom: 2rem;">
+                            <h4 style="margin-bottom: 1rem; color: var(--text-color);">Quick Extend Plan</h4>
+                            <div
+                                style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px;">
+                                <button type="button" class="btn btn-outline" onclick="setQuickAMC('1 Day', 1)"
+                                    style="justify-content: space-between;">1 Day <strong>₹45</strong></button>
+                                <button type="button" class="btn btn-outline" onclick="setQuickAMC('3 Days', 3)"
+                                    style="justify-content: space-between;">3 Days <strong>₹120</strong></button>
+                                <button type="button" class="btn btn-outline" onclick="setQuickAMC('7 Days', 7)"
+                                    style="justify-content: space-between;">7 Days <strong>₹250</strong></button>
+                                <button type="button" class="btn btn-outline" onclick="setQuickAMC('15 Days', 15)"
+                                    style="justify-content: space-between;">15 Days <strong>₹450</strong></button>
+                                <button type="button" class="btn btn-outline" onclick="setQuickAMC('1 Month', 30)"
+                                    style="justify-content: space-between;">1 Month <strong>₹799</strong></button>
+                                <button type="button" class="btn btn-outline" onclick="setQuickAMC('3 Months', 90)"
+                                    style="justify-content: space-between;">3 Months <strong>₹2,199</strong></button>
+                                <button type="button" class="btn btn-outline" onclick="setQuickAMC('6 Months', 180)"
+                                    style="justify-content: space-between;">6 Months <strong>₹3,999</strong></button>
+                                <button type="button" class="btn btn-outline" onclick="setQuickAMC('12 Months', 365)"
+                                    style="justify-content: space-between; background: var(--primary-color); color: white;">12
+                                    Months <strong>₹6,999</strong></button>
+                            </div>
+                        </div>
+
+                        <form id="amc-form">
+                            <h4 style="margin-bottom: 1rem; color: var(--text-color);">Manual Entry</h4>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                                <div class="form-group">
+                                    <label>AMC Plan Name</label>
+                                    <input type="text" id="set-amc-plan" class="form-control"
+                                        placeholder="e.g. Premium Support" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>Expiry Date</label>
+                                    <input type="date" id="set-amc-expiry" class="form-control" required>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Support Contact Information</label>
+                                <input type="text" id="set-amc-contact" class="form-control"
+                                    placeholder="Phone or Email for renewals" required>
+                            </div>
+                            <button type="submit" class="btn btn-primary"
+                                style="background-color: var(--danger-color); border-color: var(--danger-color);">Save
+                                AMC Details</button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- AMC Status (Branch Admin Only) -->
+                <div id="amc-branch-panel" class="card"
+                    style="max-width: 800px; margin-bottom: 2rem; display: none; border-left: 4px solid var(--primary-color);">
+                    <h3 style="margin-bottom: 1rem; color: var(--primary-color);"><i data-lucide="info"
+                            style="vertical-align: middle;"></i> AMC Subscription Status</h3>
+                    <div style="font-size: 1.1rem; line-height: 1.6;">
+                        <p><strong>Plan Name:</strong> <span id="branch-amc-plan">---</span></p>
+                        <p><strong>Days Remaining:</strong> <span id="branch-amc-days"
+                                style="font-weight: bold;">---</span></p>
+                        <p
+                            style="margin-top: 1rem; color: var(--danger-color); font-weight: bold; padding: 10px; background: #fee2e2; border-radius: 5px; display: inline-block;">
+                            <i data-lucide="phone-call" style="vertical-align: middle; width: 18px;"></i> To expand or
+                            renew the AMC Plan, please contact: 9360039283
+                        </p>
+                    </div>
+                </div>
+
+                <div class="card" style="max-width: 800px;">
+                    <h3 style="margin-bottom: 1.5rem;">General Settings</h3>
+                    <form id="settings-form">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+                            <div class="shop-details">
+                                <h4 style="margin-bottom: 1rem; color: var(--primary-color);">Shop Information</h4>
+                                <div class="form-group">
+                                    <label>Shop Name</label>
+                                    <input type="text" id="set-shop-name" class="form-control"
+                                        placeholder="e.g. T7 BillPro Pharma">
+                                </div>
+                                <div class="form-group">
+                                    <label>Shop Address</label>
+                                    <textarea id="set-shop-address" class="form-control" rows="3"
+                                        placeholder="Shop Address, City, State"></textarea>
+                                </div>
+                                <div class="form-group">
+                                    <label>Shop Phone(s)</label>
+                                    <input type="text" id="set-shop-phone" class="form-control"
+                                        placeholder="+91 9876543210, 044-123456">
+                                    <small style="color: var(--text-muted);">Separate multiple numbers with
+                                        commas.</small>
+                                </div>
+                                <div class="form-group">
+                                    <label>Shop GST Number (Optional)</label>
+                                    <input type="text" id="set-shop-gstin" class="form-control"
+                                        placeholder="e.g. 22AAAAA0000A1Z5">
+                                </div>
+                                <div class="form-group">
+                                    <label>Shop Logo Upload (Optional)</label>
+                                    <input type="file" id="set-shop-logo-upload" accept="image/*" class="form-control"
+                                        style="padding-top: 6px;">
+                                    <input type="hidden" id="set-shop-logo">
+                                    <div id="logo-preview-container" style="margin-top: 10px; display: none;">
+                                        <img id="logo-preview" src=""
+                                            style="max-height: 50px; border-radius: 4px; border: 1px solid #ccc;">
+                                        <button type="button" class="btn btn-outline" onclick="removeLogo()"
+                                            style="padding: 2px 8px; font-size: 0.8rem; margin-left: 10px; vertical-align: bottom;">Remove</button>
+                                    </div>
+                                    <small style="color: var(--text-muted);">Upload a small logo for receipts (Max 1MB
+                                        recommended).</small>
+                                </div>
+                                <div class="form-group">
+                                    <label>Shop UPI ID (For Receipt QR Code)</label>
+                                    <input type="text" id="set-shop-upi" class="form-control"
+                                        placeholder="e.g. shopname@upi">
+                                    <small style="color: var(--text-muted);">If provided, a QR code will be dynamically
+                                        generated on the receipt.</small>
+                                </div>
+                            </div>
+
+                            <div class="application-settings">
+                                <h4 style="margin-bottom: 1rem; color: var(--primary-color);">App & Printer</h4>
+                                <div class="form-group">
+                                    <label>Printer Type</label>
+                                    <select id="set-printer-type" class="form-control">
+                                        <option value="3inch">Thermal (3 Inch / 80mm)</option>
+                                        <option value="4inch">Thermal (4 Inch / 100mm)</option>
+                                        <option value="a5">Standard (A5)</option>
+                                        <option value="a4">Standard (A4)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>GST Configuration</label>
+                                    <div
+                                        style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem;">
+                                        <div style="display: flex; align-items: center; gap: 0.8rem;">
+                                            <label class="toggle-switch">
+                                                <input type="checkbox" id="set-gst-default" checked>
+                                                <span class="toggle-slider"></span>
+                                            </label>
+                                            <span style="font-weight: 500; cursor: pointer;"
+                                                onclick="document.getElementById('set-gst-default').click()">Enable GST
+                                                system-wide (Default)</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label>Currency Symbol</label>
+                                    <input type="text" id="set-currency" class="form-control" value="₹">
+                                </div>
+                                <div class="form-group"
+                                    style="margin-top: 1rem; padding: 1rem; background: #e0f2fe; border-radius: 8px;">
+                                    <button type="button" id="cloud-backup-btn" class="btn btn-primary"
+                                        onclick="backupAllToCloud()" style="width: 100%;"><i
+                                            data-lucide="cloud-upload"></i> BACKUP TO CLOUD</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div style="margin-top: 2rem; border-top: 1px solid var(--border-color); padding-top: 1.5rem;">
+                            <h4 style="margin-bottom: 1rem; color: var(--primary-color);">Product Categories</h4>
+                            <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                                <input type="text" id="new-category-name" class="form-control"
+                                    placeholder="Add new category" style="max-width: 300px;">
+                                <button type="button" class="btn btn-secondary" onclick="addCategory()">
+                                    <i data-lucide="plus"></i> Add
+                                </button>
+                            </div>
+                            <div id="category-list" style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                                <!-- Categories will be injected here -->
+                            </div>
+                        </div>
+
+                        <div style="margin-top: 2rem; border-top: 1px solid var(--border-color); padding-top: 1.5rem;">
+                            <h4 style="margin-bottom: 1rem; color: var(--primary-color);">Expense Categories</h4>
+                            <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                                <input type="text" id="new-exp-category-name" class="form-control"
+                                    placeholder="Add new expense category" style="max-width: 300px;">
+                                <button type="button" class="btn btn-secondary" onclick="addExpenseCategory()">
+                                    <i data-lucide="plus"></i> Add
+                                </button>
+                            </div>
+                            <div id="expense-category-list" style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                                <!-- Categories will be injected here -->
+                            </div>
+                        </div>
+
+                        <div style="margin-top: 2rem; border-top: 1px solid var(--border-color); padding-top: 1.5rem;">
+                            <h4 style="margin-bottom: 1rem; color: var(--primary-color);">Data Backup & Restore</h4>
+                            <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                                <button type="button" class="btn btn-outline" id="export-data-btn">
+                                    <i data-lucide="download"></i> Export All Data (Manual)
+                                </button>
+                                <button type="button" class="btn btn-outline" id="import-data-btn">
+                                    <i data-lucide="upload"></i> Import Data (Restore)
+                                </button>
+                                <input type="file" id="import-file-input" style="display: none;" accept=".json">
+                            </div>
+
+                            <div
+                                style="background: var(--bg-color); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-color);">
+                                <h5 style="margin-bottom: 0.5rem; font-size: 0.95rem;">Automated Local Backup</h5>
+                                <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">Select a
+                                    local folder on your computer to automatically save a backup every time you print a
+                                    shift summary or close the app.</p>
+
+                                <div style="display: flex; align-items: center; gap: 1rem;">
+                                    <button type="button" class="btn btn-primary" id="select-backup-dir-btn"
+                                        onclick="selectBackupDir()">
+                                        <i data-lucide="folder-open"></i> SELECT DATABACKUP PATH
+                                    </button>
+                                    <div id="backup-dir-status" style="font-size: 0.9rem; color: var(--text-muted);">
+                                        No folder selected.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div
+                            style="margin-top: 2rem; border-top: 1px solid var(--border-color); padding-top: 1.5rem; text-align: right; display: flex; justify-content: flex-end; gap: 10px;">
+                            <button type="button" class="btn btn-outline" onclick="printTestReceipt()">
+                                <i data-lucide="printer"></i> Print Test Receipt
+                            </button>
+                            <button type="submit" class="btn btn-primary">
+                                <i data-lucide="save"></i> Save Settings
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+        </main>
+
+        <!-- Modals -->
+        <div class="modal-overlay" id="product-modal">
+            <div class="modal">
+                <div class="modal-header">
+                    <h3 id="modal-title">Add New Product</h3>
+                    <button class="btn btn-outline" id="close-product-modal" style="padding: 0.5rem;">
+                        <i data-lucide="x"></i>
+                    </button>
+                </div>
+                <form id="product-form">
+                    <input type="hidden" id="edit-id">
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem;">
+                        <div class="form-group" style="grid-column: span 2;">
+                            <label>Product Name *</label>
+                            <input type="text" id="p-name" class="form-control" placeholder="Medicine Name" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Barcode / Scancode</label>
+                            <input type="text" id="p-barcode" class="form-control" placeholder="Scan or type">
+                        </div>
+
+                        <div class="form-group">
+                            <label>Category *</label>
+                            <select id="p-category" class="form-control" required>
+                                <!-- Categories are dynamically loaded here -->
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Purchase Unit (Bought By) *</label>
+                            <select id="p-unit" class="form-control" onchange="updateSalesUnitOptions()" required>
+                                <option value="pcs" selected>Pcs (Pieces / Units)</option>
+                                <option value="kg">Kg (Kilograms)</option>
+                                <option value="ltr">Ltr (Liters)</option>
+                                <option value="pkg">Pkg (Package / Box)</option>
+                                <option value="plate">Plate</option>
+                                <option value="strip">Strip (Medicine Pack)</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Sales Unit (Sold By) *</label>
+                            <select id="p-sales-unit" class="form-control" required>
+                                <option value="pcs">Pcs (Pieces / Units)</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>HSN Code</label>
+                            <input type="text" id="p-hsn" class="form-control" placeholder="HSN">
+                        </div>
+
+                        <div class="form-group">
+                            <label>Batch Number *</label>
+                            <input type="text" id="p-batch" class="form-control" placeholder="Batch No" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Expiry Date *</label>
+                            <input type="date" id="p-expiry" class="form-control" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label>MRP *</label>
+                            <input type="number" step="0.01" id="p-mrp" class="form-control" placeholder="0.00"
+                                required>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Sale Price *</label>
+                            <input type="number" step="0.01" id="p-sale-price" class="form-control" placeholder="0.00"
+                                required>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Stock Quantity *</label>
+                            <div style="display: flex; gap: 8px;">
+                                <input type="number" id="p-stock" class="form-control" placeholder="Current Stock"
+                                    step="0.001" required>
+                                <button type="button" class="btn btn-outline"
+                                    onclick="document.getElementById('p-stock').value = 999999;"
+                                    title="Set Infinity Stock"
+                                    style="padding: 0 10px; font-weight: bold; font-size: 1.2rem; color: var(--primary-color);">∞</button>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label>GST %</label>
+                            <select id="p-gst" class="form-control">
+                                <option value="0">0%</option>
+                                <option value="5">5%</option>
+                                <option value="12">12%</option>
+                                <option value="18" selected>18%</option>
+                                <option value="28">28%</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 1rem; margin-top: 1.5rem; justify-content: flex-end;">
+                        <button type="button" class="btn btn-outline" id="cancel-product">Cancel</button>
+                        <button type="submit" class="btn btn-primary" id="save-product">Save Product</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Customer Modal -->
+        <div id="customer-modal" class="modal-overlay">
+            <div class="modal">
+                <div class="modal-header">
+                    <h3 id="customer-modal-title">Add New Customer</h3>
+                    <button class="btn-outline" style="padding: 5px; border-radius: 50%;"
+                        onclick="closeCustomerModal()">
+                        <i data-lucide="x"></i>
+                    </button>
+                </div>
+                <form id="customer-form">
+                    <input type="hidden" id="edit-customer-id">
+                    <div class="form-group">
+                        <label>Customer Name *</label>
+                        <input type="text" id="c-name" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Phone Number *</label>
+                        <input type="text" id="c-phone" class="form-control" required>
+                    </div>
+                    <div style="display: flex; gap: 1rem; margin-top: 1.5rem; justify-content: flex-end;">
+                        <button type="button" class="btn btn-outline" onclick="closeCustomerModal()">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save Customer</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Supplier Modal -->
+        <div id="supplier-modal" class="modal-overlay">
+            <div class="modal">
+                <div class="modal-header">
+                    <h3 id="supplier-modal-title">Add New Supplier</h3>
+                    <button class="btn-outline" style="padding: 5px; border-radius: 50%;"
+                        onclick="closeSupplierModal()">
+                        <i data-lucide="x"></i>
+                    </button>
+                </div>
+                <form id="supplier-form">
+                    <input type="hidden" id="edit-supplier-id">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <div class="form-group" style="grid-column: span 2;">
+                            <label>Supplier Name *</label>
+                            <input type="text" id="s-name" class="form-control" required
+                                placeholder="Pharma Company Name">
+                        </div>
+                        <div class="form-group">
+                            <label>Contact Person</label>
+                            <input type="text" id="s-person" class="form-control" placeholder="John Doe">
+                        </div>
+                        <div class="form-group">
+                            <label>Phone Number *</label>
+                            <input type="text" id="s-phone" class="form-control" required placeholder="0000000000">
+                        </div>
+                        <div class="form-group">
+                            <label>Email Address</label>
+                            <input type="email" id="s-email" class="form-control" placeholder="supplier@example.com">
+                        </div>
+                        <div class="form-group">
+                            <label>GSTIN</label>
+                            <input type="text" id="s-gstin" class="form-control" placeholder="GST number">
+                        </div>
+                        <div class="form-group" style="grid-column: span 2;">
+                            <label>Address</label>
+                            <textarea id="s-address" class="form-control" rows="2"
+                                placeholder="Full address"></textarea>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 1rem; margin-top: 1.5rem; justify-content: flex-end;">
+                        <button type="button" class="btn btn-outline" onclick="closeSupplierModal()">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save Supplier</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Supplier Payment Modal -->
+        <div id="supplier-payment-modal" class="modal-overlay">
+            <div class="modal">
+                <div class="modal-header">
+                    <h3>Pay Supplier</h3>
+                    <button class="close-btn" onclick="closeSupplierPaymentModal()">&times;</button>
+                </div>
+                <form id="supplier-payment-form">
+                    <input type="hidden" id="spay-supplier-id">
+                    <div class="form-group">
+                        <label>Supplier Name</label>
+                        <input type="text" id="spay-supplier-name" class="form-control" readonly>
+                    </div>
+                    <div class="form-group">
+                        <label>Amount to Pay (₹)</label>
+                        <input type="number" id="spay-amount" class="form-control" required placeholder="0.00"
+                            step="0.01">
+                    </div>
+                    <div class="form-group">
+                        <label>Payment Method</label>
+                        <select id="spay-method" class="form-control">
+                            <option value="Cash">Cash</option>
+                            <option value="Bank Transfer">Bank Transfer</option>
+                            <option value="Cheque">Cheque</option>
+                            <option value="UPI">UPI / GPay</option>
+                        </select>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline"
+                            onclick="closeSupplierPaymentModal()">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Record Payment</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Supplier Report Modal -->
+        <div id="supplier-report-modal" class="modal-overlay">
+            <div class="modal" style="max-width: 800px; width: 90%;">
+                <div class="modal-header">
+                    <h3>Supplier Ledger Report</h3>
+                    <button class="close-btn" onclick="closeSupplierReport()">&times;</button>
+                </div>
+                <div style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <h4 id="report-supplier-name" style="color: var(--primary-color);">Supplier Name</h4>
+                        <p id="report-supplier-phone" style="font-size: 0.9rem; color: var(--text-muted);"></p>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="font-size: 0.9rem;">Outstanding Balance: <strong id="report-supplier-balance"
+                                style="color: var(--danger-color); font-size: 1.2rem;">₹0.00</strong></div>
+                    </div>
+                </div>
+                <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                    <table id="supplier-ledger-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Description</th>
+                                <th>Reference (Inv/Mode)</th>
+                                <th style="text-align: right;">Debit (Purchase)</th>
+                                <th style="text-align: right;">Credit (Payment)</th>
+                                <th style="text-align: right;">Balance</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Ledger entries injected here -->
+                        </tbody>
+                    </table>
+                </div>
+                <div class="modal-footer" style="margin-top: 1rem;">
+                    <button type="button" class="btn btn-primary" onclick="printSupplierReport()">
+                        <i data-lucide="printer"></i> Print Report
+                    </button>
+                    <button type="button" class="btn btn-outline" onclick="closeSupplierReport()">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Payment Return Modal -->
+        <div id="payment-modal" class="modal-overlay">
+            <div class="modal">
+                <div class="modal-header">
+                    <h3>Return / Pay Amount</h3>
+                    <button class="close-btn" onclick="closePaymentModal()">&times;</button>
+                </div>
+                <form id="payment-form">
+                    <input type="hidden" id="pay-customer-id">
+                    <div class="form-group">
+                        <label>Customer Name</label>
+                        <input type="text" id="pay-customer-name" class="form-control" readonly>
+                    </div>
+                    <div class="form-group">
+                        <label>Amount to Pay (₹)</label>
+                        <input type="number" id="pay-amount" class="form-control" required placeholder="0.00">
+                    </div>
+                    <div class="form-group">
+                        <label>Payment Method</label>
+                        <select id="pay-method" class="form-control">
+                            <option value="Cash">Cash</option>
+                            <option value="GPay">GPay</option>
+                        </select>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline" onclick="closePaymentModal()">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Process Payment</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Admin Creation Modal -->
+        <div id="admin-modal" class="modal-overlay">
+            <div class="modal">
+                <div class="modal-header">
+                    <h3 id="admin-modal-title">Provision New User</h3>
+                    <button class="close-btn" onclick="closeAdminModal()">&times;</button>
+                </div>
+                <form id="admin-form">
+                    <input type="hidden" id="admin-edit-id">
+                    <div class="form-group">
+                        <label>Admin Username</label>
+                        <input type="text" id="admin-user" class="form-control" required placeholder="staff_name"
+                            autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label>Password</label>
+                        <input type="password" id="admin-pass" class="form-control" required placeholder="••••••••"
+                            autocomplete="new-password">
+                    </div>
+                    <div class="form-group">
+                        <label>Role</label>
+                        <select id="admin-role" class="form-control">
+                            <option value="admin">Admin</option>
+                            <option value="staff">Staff</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Assign to Branch</label>
+                        <select id="admin-branch" class="form-control" required>
+                            <!-- Branches injected here -->
+                        </select>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline" onclick="closeAdminModal()">Cancel</button>
+                        <button type="submit" id="admin-modal-submit" class="btn btn-primary">Create Account</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Branch Creation Modal -->
+        <div id="branch-modal" class="modal-overlay">
+            <div class="modal">
+                <div class="modal-header">
+                    <h3>Create New Branch</h3>
+                    <button class="close-btn" onclick="closeBranchModal()">&times;</button>
+                </div>
+                <form id="branch-form">
+                    <div class="form-group">
+                        <label>Branch Name *</label>
+                        <input type="text" id="branch-name" class="form-control" required
+                            placeholder="e.g. City Center Branch">
+                    </div>
+                    <div class="form-group">
+                        <label>Location / Details</label>
+                        <textarea id="branch-location" class="form-control" rows="2"
+                            placeholder="Full address or description"></textarea>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline" onclick="closeBranchModal()">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save Branch</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Thermal Bill Template (Hidden) -->
+        <div id="thermal-bill" style="font-family: 'Courier New', Courier, monospace; color: #000;">
+            <div class="bill-center">
+                <img id="bill-logo" src="" alt="Logo" style="max-height: 50px; margin-bottom: 5px; display: none;">
+                <svg id="bill-default-logo" xmlns="http://www.w3.org/2000/svg" width="32" height="32"
+                    viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round" style="margin-bottom: 5px;">
+                    <circle cx="9" cy="21" r="1"></circle>
+                    <circle cx="20" cy="21" r="1"></circle>
+                    <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
+                </svg>
+                <h2 id="bill-shop-name"
+                    style="margin: 0; font-size: 1.2rem; font-weight: bold; text-transform: uppercase;">TEAM 7 SYSTEM
+                    SOLUTION</h2>
+                <div style="border-top: 1px dashed #000; margin: 8px 0;"></div>
+                <p id="bill-shop-address" style="margin: 2px 0; font-size: 0.9rem; line-height: 1.3;">123 Medical
+                    Street, City Center<br>Coimbatore, Tamil Nadu, India</p>
+                <p
+                    style="margin: 4px 0 2px 0; font-size: 0.9rem; display: flex; align-items: center; justify-content: center; gap: 5px;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path
+                            d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z">
+                        </path>
+                    </svg>
+                    <span id="bill-shop-phone">+91 12345 67890</span>
+                </p>
+                <p id="bill-shop-gstin" style="margin: 2px 0; font-weight: bold; font-size: 0.9em; display: none;"></p>
+                <div style="border-top: 1px dashed #000; margin: 8px 0;"></div>
+                <h3 id="bill-return-header" style="margin: 5px 0; font-size: 1.1rem; display: none;">RETURN INVOICE</h3>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; font-size: 0.9rem; margin-bottom: 10px;">
+                <div style="line-height: 1.4;">
+                    <div style="display: grid; grid-template-columns: 60px auto; gap: 5px;">
+                        <span>Bill No</span> <span>: <span id="bill-inv-no"></span></span>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 60px auto; gap: 5px;">
+                        <span>Date</span> <span>: <span id="bill-date"></span></span>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 60px auto; gap: 5px;">
+                        <span>Time</span> <span>: <span id="bill-time"></span></span>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 60px auto; gap: 5px;">
+                        <span>Cashier</span> <span>: <span id="bill-cashier"></span></span>
+                    </div>
+                </div>
+                <div style="text-align: center; align-self: flex-start; padding-top: 4px;">
+                    <img id="bill-qr-img" src="" style="width: 48px; height: 48px; display: none; object-fit: contain;">
+                    <div id="bill-qr-placeholder"
+                        style="width: 48px; height: 48px; border: 1px dashed #ccc; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; color: #999;">
+                        QR</div>
+                    <div style="font-size: 0.75rem; margin-top: 2px;">Scan & Pay</div>
+                </div>
+            </div>
+
+            <div style="border-top: 1px dashed #000; margin: 8px 0;"></div>
+            <table style="width: 100%; font-size: 0.9rem; border-collapse: collapse;">
+                <thead>
+                    <tr>
+                        <th style="padding: 2px 0; text-align: left; width: 10%;">S.NO</th>
+                        <th style="padding: 2px 0; text-align: left; width: 45%;">ITEM NAME</th>
+                        <th style="padding: 2px 0; text-align: center; width: 15%;">QTY</th>
+                        <th style="padding: 2px 0; text-align: right; width: 15%;">RATE</th>
+                        <th style="padding: 2px 0; text-align: right; width: 15%;">AMOUNT</th>
+                    </tr>
+                </thead>
+                <tbody id="bill-items-body">
+                    <!-- Items -->
+                </tbody>
+            </table>
+            <div style="border-top: 1px dashed #000; margin: 8px 0;"></div>
+
+            <div style="margin-left: auto; width: 75%; font-size: 0.9rem; line-height: 1.4;">
+                <div style="display: grid; grid-template-columns: 1fr 10px auto; gap: 5px;">
+                    <span style="text-align: left;">SUB TOTAL</span> <span>:</span> <span id="bill-subtotal"
+                        style="text-align: right;"></span>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 10px auto; gap: 5px;">
+                    <span style="text-align: left;">DISCOUNT</span> <span>:</span> <span id="bill-discount"
+                        style="text-align: right;"></span>
+                </div>
+                <div id="bill-gst-row" style="display: grid; grid-template-columns: 1fr 10px auto; gap: 5px;">
+                    <span style="text-align: left;">TAX (GST)</span> <span>:</span> <span id="bill-gst"
+                        style="text-align: right;"></span>
+                </div>
+            </div>
+            <div style="border-top: 1px dashed #000; margin: 8px 0;"></div>
+            <div
+                style="display: grid; grid-template-columns: 1fr 10px auto; gap: 5px; font-weight: bold; font-size: 1.1rem; margin: 5px 0;">
+                <span style="text-align: left; margin-left: 25%;">GRAND TOTAL</span> <span>:</span> <span
+                    id="bill-grand-total" style="text-align: right;"></span>
+            </div>
+            <div style="border-top: 1px dashed #000; margin: 8px 0;"></div>
+
+            <div style="font-size: 0.9rem; line-height: 1.4;">
+                <div style="display: grid; grid-template-columns: 120px 10px auto; gap: 5px;">
+                    <span>PAYMENT MODE</span> <span>:</span> <span id="bill-payment-mode"></span>
+                </div>
+                <div style="display: grid; grid-template-columns: 120px 10px auto; gap: 5px;">
+                    <span>AMOUNT PAID</span> <span>:</span> <span id="bill-amount-paid"></span>
+                </div>
+            </div>
+
+            <div style="border-top: 1px dashed #000; margin: 8px 0;"></div>
+
+            <div class="bill-center" style="font-size: 0.9rem; margin-top: 10px;">
+                <p style="margin: 3px 0; font-weight: bold;">★ THANK YOU FOR SHOPPING ★</p>
+                <p style="margin: 3px 0; font-weight: bold;">VISIT AGAIN!</p>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    style="margin: 5px 0;" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
+                    <line x1="9" y1="9" x2="9.01" y2="9"></line>
+                    <line x1="15" y1="9" x2="15.01" y2="9"></line>
+                </svg>
+            </div>
+
+        </div>
+
+        <!-- Thermal Shift Summary Template (Hidden) -->
+        <div id="thermal-summary">
+            <div class="bill-center">
+                <h2 id="summary-shop-name" style="margin:0">MEDIFLOW PHARMA</h2>
+                <h3 style="margin: 5px 0 0 0;">SHIFT SUMMARY</h3>
+            </div>
+            <div class="bill-divider"></div>
+            <div style="display: flex; justify-content: space-between;">
+                <span>Event: <span id="summary-type"></span></span>
+                <span id="summary-date"></span>
+            </div>
+            <div style="margin: 5px 0;">User: <span id="summary-user"></span></div>
+            <div class="bill-divider-thin"></div>
+
+            <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                <span>Total Cash:</span> <span id="summary-cash">0.00</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                <span>Total GPay:</span> <span id="summary-gpay">0.00</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                <span>Total Credit:</span> <span id="summary-credit">0.00</span>
+            </div>
+
+            <div class="bill-divider-thin"></div>
+            <div
+                style="display: flex; justify-content: space-between; font-weight: bold; font-size: 1.1em; margin-top: 5px;">
+                <span>TOTAL REVENUE:</span> <span id="summary-total">0.00</span>
+            </div>
+            <div class="bill-divider"></div>
+            <div class="bill-center">
+                <p>Generated by T7 BillPro</p>
+            </div>
+        </div>
+
+        <!-- Digital Menu Order Placement Modal -->
+        <div id="menu-order-modal" class="modal-overlay">
+            <div class="modal" style="max-width: 680px; width: 94%;">
+                <div class="modal-header">
+                    <h3><i data-lucide="shopping-cart" style="vertical-align: middle; color: var(--primary-color);"></i> Customer Digital Order</h3>
+                    <button type="button" class="close-btn" onclick="closeMenuOrderModal()">&times;</button>
+                </div>
+                <form id="menu-order-form">
+                    <div style="max-height: 200px; overflow-y: auto; margin-bottom: 1rem; border: 1px solid var(--border-color); border-radius: 8px;">
+                        <table class="table" style="width: 100%; margin: 0; font-size: 0.88rem;">
+                            <thead>
+                                <tr style="background: var(--bg-color);">
+                                    <th>Item</th>
+                                    <th style="width: 90px;">Price</th>
+                                    <th style="width: 110px;">Qty</th>
+                                    <th style="text-align: right; width: 90px;">Total</th>
+                                    <th style="width: 40px;"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="menu-order-items-list">
+                                <!-- Order items injected dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div style="display: flex; justify-content: space-between; align-items: center; background: var(--primary-light); padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1.25rem;">
+                        <strong style="color: var(--primary-color);">Order Total Amount:</strong>
+                        <strong id="menu-order-grand-total" style="font-size: 1.3rem; color: var(--primary-color);">₹0.00</strong>
+                    </div>
+
+                    <!-- Customer Details Form -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <div class="form-group">
+                            <label>Customer Name *</label>
+                            <input type="text" id="morder-name" class="form-control" placeholder="Enter customer name" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Mobile Number *</label>
+                            <input type="text" id="morder-phone" class="form-control" placeholder="10-digit mobile number" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Order Type</label>
+                            <select id="morder-type" class="form-control">
+                                <option value="Counter Pickup">Counter Pickup</option>
+                                <option value="Dine-In / Table">Dine-In / Table</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Table / Token No.</label>
+                            <input type="text" id="morder-ref" class="form-control" placeholder="e.g. Table 4 / Token 12">
+                        </div>
+                        <div class="form-group">
+                            <label>Notes / Instructions</label>
+                            <input type="text" id="morder-notes" class="form-control" placeholder="e.g. Urgent, special instructions">
+                        </div>
+                    </div>
+
+                    <div class="modal-footer" style="margin-top: 1.5rem; display: flex; gap: 0.75rem; justify-content: flex-end; flex-wrap: wrap;">
+                        <button type="button" class="btn btn-outline" onclick="closeMenuOrderModal()">Cancel</button>
+                        <button type="submit" class="btn btn-primary">
+                            <i data-lucide="check-circle-2"></i> Submit & Place Order
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Order Confirmation Success Modal -->
+        <div id="menu-order-success-modal" class="modal-overlay">
+            <div class="modal" style="max-width: 480px; text-align: center; padding: 2rem;">
+                <div style="color: #10b981; margin-bottom: 1rem;">
+                    <i data-lucide="check-circle-2" style="width: 64px; height: 64px;"></i>
+                </div>
+                <h2 style="color: var(--text-main); margin-bottom: 0.5rem;">Order Placed Successfully!</h2>
+                <p style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 1.25rem;">Your order has been recorded and processed.</p>
+                
+                <div style="background: var(--bg-color); border: 1px dashed var(--border-color); border-radius: 10px; padding: 1rem; margin-bottom: 1.5rem; text-align: left;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                        <span style="color: var(--text-muted);">Order Ref:</span>
+                        <strong id="success-order-id">#ORD-1001</strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                        <span style="color: var(--text-muted);">Customer:</span>
+                        <span id="success-order-customer">John Doe</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                        <span style="color: var(--text-muted);">Items Ordered:</span>
+                        <span id="success-order-items">3 items</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span style="color: var(--text-muted);">Grand Total:</span>
+                        <strong id="success-order-total" style="color: var(--primary-color);">₹0.00</strong>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
+                    <button type="button" class="btn btn-outline" onclick="closeMenuSuccessModal()">Close</button>
+                    <a id="success-whatsapp-btn" href="#" target="_blank" class="btn" style="background: #25D366; color: white; border: none;">
+                        <i data-lucide="message-square"></i> WhatsApp Ticket
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <script src="script.js"></script>
+        <script>
+            if ('serviceWorker' in navigator) {
+                window.addEventListener('load', () => {
+                    navigator.serviceWorker.register('./sw.js').then(registration => {
+                        console.log('ServiceWorker registration successful with scope: ', registration.scope);
+                    }).catch(err => {
+                        console.log('ServiceWorker registration failed: ', err);
+                    });
+                });
+            }
+        </script>
+    </div>
+</body>
+
+</html>
