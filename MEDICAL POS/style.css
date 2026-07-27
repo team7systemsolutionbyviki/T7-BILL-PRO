@@ -1496,3 +1496,115 @@ input:checked + .toggle-slider:before {
     font-size: 0.88rem;
     color: var(--text-main);
 }
+
+/* Staff Management System Styling */
+.staff-subtab-btn {
+    font-weight: 500;
+    transition: var(--transition);
+}
+
+.staff-subtab-btn.active {
+    background: var(--primary-color) !important;
+    color: white !important;
+    border-color: var(--primary-color) !important;
+    box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
+}
+
+.attendance-badge-group {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.att-btn {
+    padding: 6px 12px;
+    border-radius: 20px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-color);
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.att-btn.active-present {
+    background: #d1fae5 !important;
+    color: #065f46 !important;
+    border-color: #10b981 !important;
+}
+
+.att-btn.active-absent {
+    background: #fee2e2 !important;
+    color: #991b1b !important;
+    border-color: #ef4444 !important;
+}
+
+.att-btn.active-halfday {
+    background: #fef3c7 !important;
+    color: #92400e !important;
+    border-color: #f59e0b !important;
+}
+
+.att-btn.active-leave {
+    background: #dbeafe !important;
+    color: #1e40af !important;
+    border-color: #2563eb !important;
+}
+
+.badge-status {
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    display: inline-block;
+}
+
+.badge-active { background: #d1fae5; color: #065f46; }
+.badge-inactive { background: #f3f4f6; color: #4b5563; }
+.badge-paid { background: #d1fae5; color: #065f46; }
+.badge-unpaid { background: #fee2e2; color: #991b1b; }
+.badge-partial { background: #fef3c7; color: #92400e; }
+
+@media print {
+    body * {
+        visibility: hidden;
+    }
+    #payslip-printable-content, #payslip-printable-content * {
+        visibility: visible;
+    }
+    #payslip-printable-content {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+    }
+}
+
+/* Customer Digital Menu View Mode Styles */
+body.customer-mode aside#main-sidebar {
+    display: none !important;
+}
+
+body.customer-mode main {
+    margin-left: 0 !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    padding-bottom: 90px;
+}
+
+body.customer-mode .header-top {
+    display: none !important;
+}
+
+body.customer-mode #customer-top-bar {
+    display: flex !important;
+}
+
+body.customer-mode .page-section {
+    padding: 1rem;
+}
+
+body.customer-mode #menu-card {
+    display: block !important;
+}

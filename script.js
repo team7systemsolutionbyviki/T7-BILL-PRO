@@ -21,7 +21,7 @@ if (branches.length === 0) {
 }
 
 // Storage Interceptors for Multi-Branch
-const branchSpecificKeys = ['mediflow_products', 'mediflow_sales', 'mediflow_settings', 'mediflow_purchases', 'mediflow_expenses', 'mediflow_categories', 'mediflow_expense_categories', 'mediflow_customers', 'mediflow_customer_payments', 'mediflow_suppliers', 'mediflow_supplier_payments', 'mediflow_held_carts', 'mediflow_amc'];
+const branchSpecificKeys = ['mediflow_products', 'mediflow_sales', 'mediflow_settings', 'mediflow_purchases', 'mediflow_expenses', 'mediflow_categories', 'mediflow_expense_categories', 'mediflow_customers', 'mediflow_customer_payments', 'mediflow_suppliers', 'mediflow_supplier_payments', 'mediflow_held_carts', 'mediflow_amc', 'mediflow_staff', 'mediflow_attendance', 'mediflow_staff_advances', 'mediflow_salary_payments', 'mediflow_digital_orders'];
 
 const originalGetItem = localStorage.getItem;
 localStorage.getItem = function(key) {
@@ -47,6 +47,10 @@ let suppliers = [];
 let supplierPayments = [];
 let cart = [];
 let heldCarts = [];
+let staffList = [];
+let attendanceLogs = [];
+let staffAdvances = [];
+let salaryPayments = [];
 
 function loadBranchData() {
     const storedProducts = localStorage.getItem('mediflow_products');
@@ -65,8 +69,11 @@ function loadBranchData() {
     }
     sales = JSON.parse(localStorage.getItem('mediflow_sales')) || [];
     settings = JSON.parse(localStorage.getItem('mediflow_settings')) || {
-        shopName: 'T7 BillPro', shopAddress: '123 Medical Street, City Center', shopPhone: '+91 9876543210', shopLogo: '', printerType: '3inch', gstDefault: true, currency: '₹'
+        shopName: 'T7 BillPro', shopAddress: '123 Medical Street, City Center', shopPhone: '+91 9876543210', shopLogo: '', printerType: '3inch', printerName: 'Default System Printer', printCopies: 1, gstDefault: true, kotEnabled: true, currency: '₹'
     };
+    if (settings.kotEnabled === undefined) settings.kotEnabled = true;
+    if (!settings.printerName) settings.printerName = 'Default System Printer';
+    if (!settings.printCopies) settings.printCopies = 1;
     purchases = JSON.parse(localStorage.getItem('mediflow_purchases')) || [];
     expenses = JSON.parse(localStorage.getItem('mediflow_expenses')) || [];
     categories = JSON.parse(localStorage.getItem('mediflow_categories')) || ['Tablet', 'Syrup', 'Injection', 'Capsule', 'Ointment', 'Other'];
@@ -77,7 +84,30 @@ function loadBranchData() {
     suppliers = JSON.parse(localStorage.getItem('mediflow_suppliers')) || [];
     supplierPayments = JSON.parse(localStorage.getItem('mediflow_supplier_payments')) || [];
     heldCarts = JSON.parse(localStorage.getItem('mediflow_held_carts')) || [];
+    
+    const storedStaff = localStorage.getItem('mediflow_staff');
+    if (storedStaff === null) {
+        if (currentBranchId === 'branch_default' || currentBranchId === 'main') {
+            staffList = [
+                { id: 'STF01', name: 'Ramesh Kumar', phone: '9876543210', role: 'Pharmacist', salaryType: 'Monthly', salaryRate: 18000, joiningDate: '2025-01-10', status: 'Active', address: 'Main Street', branchId: currentBranchId },
+                { id: 'STF02', name: 'Suresh Kumar', phone: '9876543211', role: 'Sales Assistant', salaryType: 'Daily', salaryRate: 600, joiningDate: '2025-03-15', status: 'Active', address: 'Cross Road', branchId: currentBranchId }
+            ];
+        } else {
+            staffList = [];
+        }
+        localStorage.setItem('mediflow_staff', JSON.stringify(staffList));
+    } else {
+        try {
+            staffList = JSON.parse(storedStaff) || [];
+        } catch (e) {
+            staffList = [];
+        }
+    }
+    attendanceLogs = JSON.parse(localStorage.getItem('mediflow_attendance')) || [];
+    staffAdvances = JSON.parse(localStorage.getItem('mediflow_staff_advances')) || [];
+    salaryPayments = JSON.parse(localStorage.getItem('mediflow_salary_payments')) || [];
     cart = [];
+    if (typeof renderBarcodeProductOptions === 'function') renderBarcodeProductOptions();
 }
 
 // --- Firebase Config & Synchronization ---
@@ -127,6 +157,7 @@ function initApp() {
         if (typeof renderBranches === 'function') renderBranches();
         if (typeof renderCategoryManagement === 'function') renderCategoryManagement();
         if (typeof renderExpenseCategoryManagement === 'function') renderExpenseCategoryManagement();
+        if (typeof renderStaffManagement === 'function') renderStaffManagement();
         if (typeof switchSection === 'function' && typeof activeSection !== 'undefined') {
             switchSection(activeSection);
         }
@@ -143,6 +174,8 @@ async function syncToCloud(collectionName, documentData) {
         if (collectionName === 'customerPayments') docName = 'customer_payments';
         if (collectionName === 'supplierPayments') docName = 'supplier_payments';
         if (collectionName === 'expenseCategories') docName = 'expense_categories';
+        if (collectionName === 'staffAdvances') docName = 'staff_advances';
+        if (collectionName === 'salaryPayments') docName = 'salary_payments';
         
         const globalCols = ['admins', 'branches'];
         let fbDocName = globalCols.includes(collectionName) ? docName : `${currentBranchId}_${docName}`;
@@ -162,7 +195,7 @@ async function syncFromCloud() {
     if (!isFirebaseEnabled || !db) return;
     try {
         isSyncingFromCloud = true;
-        const collections = ['products', 'sales', 'settings', 'purchases', 'expenses', 'categories', 'expense_categories', 'customers', 'suppliers', 'admins', 'supplierPayments', 'customerPayments', 'branches'];
+        const collections = ['products', 'sales', 'settings', 'purchases', 'expenses', 'categories', 'expense_categories', 'customers', 'suppliers', 'admins', 'supplierPayments', 'customerPayments', 'branches', 'staff', 'attendance', 'staff_advances', 'salary_payments'];
         
         let hasUpdates = false;
         for (const col of collections) {
@@ -197,6 +230,10 @@ async function syncFromCloud() {
                     else if (col === 'admins') admins = arrayData;
                     else if (col === 'supplierPayments') supplierPayments = arrayData;
                     else if (col === 'customerPayments') customerPayments = arrayData;
+                    else if (col === 'staff') staffList = arrayData;
+                    else if (col === 'attendance') attendanceLogs = arrayData;
+                    else if (col === 'staff_advances') staffAdvances = arrayData;
+                    else if (col === 'salary_payments') salaryPayments = arrayData;
 
                     window[col] = arrayData;
                     let localKey = 'mediflow_' + docName;
@@ -418,6 +455,16 @@ function applySavedSidebarState() {
 }
 
 function checkLoginStatus() {
+    const isCustomerView = window.location.hash === '#menu-card' || 
+                           window.location.hash === '#menu' ||
+                           window.location.search.includes('mode=customer') || 
+                           window.location.search.includes('menu=true');
+
+    if (isCustomerView && sessionStorage.getItem('mediflow_logged_in') !== 'true') {
+        enableCustomerMenuView();
+        return;
+    }
+
     const isLoggedIn = sessionStorage.getItem('mediflow_logged_in');
     const loginScreen = document.getElementById('login-screen');
     const appContainer = document.getElementById('app-container');
@@ -538,6 +585,10 @@ function checkLoginStatus() {
             switchSection(activeSection);
         }
     } else {
+        if (isCustomerView) {
+            enableCustomerMenuView();
+            return;
+        }
         if (loginScreen) loginScreen.style.display = 'flex';
         if (appContainer) {
             appContainer.style.display = 'none';
@@ -867,6 +918,10 @@ function loadSettings() {
             const message = encodeURIComponent(`Hello, I am contacting you regarding ${shopNameStr}.`);
             waBtn.href = `https://wa.me/919360039283?text=${message}`;
         }
+
+        // Table Management nav visibility
+        const navTableBtn = document.getElementById('nav-table-mgmt');
+        if (navTableBtn) navTableBtn.style.display = settings.enableTableMgmt ? 'flex' : 'none';
     } catch (e) {
         console.error('Error loading settings:', e);
     }
@@ -896,7 +951,9 @@ function switchSection(sectionId) {
         'menu-card': 'Digital Menu Card',
         'digital-orders': 'Digital Menu Orders',
         'users': 'Staff & Admin Management',
-        'branches': 'Branch Management'
+        'branches': 'Branch Management',
+        'staff-management': 'Staff Management & Payroll',
+        'barcode-labels': 'Product Barcode Label Printer'
     };
     if (document.getElementById('section-title')) {
         document.getElementById('section-title').textContent = titles[sectionId] || 'T7 BillPro';
@@ -924,6 +981,26 @@ function switchSection(sectionId) {
         generateInvoiceNumber();
         // Set GST default from settings
         document.getElementById('gst-toggle').checked = settings.gstDefault;
+        const kotBtn = document.getElementById('print-kot-btn');
+        if (kotBtn) kotBtn.style.display = (settings.kotEnabled !== false) ? 'inline-flex' : 'none';
+        
+        const waiterContainer = document.getElementById('billing-waiter-container');
+        if (waiterContainer) {
+            waiterContainer.style.display = settings.enableWaiterSelect ? 'block' : 'none';
+            if (settings.enableWaiterSelect && typeof renderBillingWaiterOptions === 'function') renderBillingWaiterOptions();
+        }
+        const doctorContainer = document.getElementById('billing-doctor-container');
+        if (doctorContainer) {
+            doctorContainer.style.display = settings.enableDoctorSelect ? 'block' : 'none';
+            if (settings.enableDoctorSelect && typeof renderBillingDoctorOptions === 'function') renderBillingDoctorOptions();
+        }
+        const tableContainer = document.getElementById('billing-table-container');
+        if (tableContainer) {
+            tableContainer.style.display = settings.enableTableMgmt ? 'block' : 'none';
+        }
+    }
+    if (sectionId === 'settings') {
+        if (typeof loadSettingsFields === 'function') loadSettingsFields();
     }
     if (sectionId === 'reports') {
         const today = new Date().toISOString().split('T')[0];
@@ -934,8 +1011,18 @@ function switchSection(sectionId) {
     if (sectionId === 'menu-card') {
         renderMenuCard();
     }
+    if (sectionId === 'table-management') {
+        if (typeof renderTableManagement === 'function') renderTableManagement();
+    }
     if (sectionId === 'digital-orders') {
         renderDigitalOrders();
+    }
+    if (sectionId === 'staff-management') {
+        renderStaffManagement();
+    }
+    if (sectionId === 'barcode-labels') {
+        if (typeof renderBarcodeProductOptions === 'function') renderBarcodeProductOptions();
+        if (typeof renderBarcodeLabelsPreview === 'function') renderBarcodeLabelsPreview();
     }
 }
 
@@ -1128,6 +1215,23 @@ function setupEventListeners() {
         document.getElementById('product-list-search').addEventListener('input', renderProducts);
     }
 
+    const importProductsBtn = document.getElementById('import-products-btn');
+    const productImportInput = document.getElementById('product-import-input');
+
+    if (importProductsBtn && productImportInput) {
+        importProductsBtn.addEventListener('click', () => {
+            productImportInput.click();
+        });
+
+        productImportInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                handleProductImportFile(file);
+                e.target.value = '';
+            }
+        });
+    }
+
     document.getElementById('supplier-list-search').addEventListener('input', renderSuppliers);
     document.getElementById('supplier-payment-form').addEventListener('submit', handleSupplierPaymentSubmit);
     document.getElementById('payment-form').addEventListener('submit', handlePaymentSubmit);
@@ -1212,7 +1316,13 @@ function setupEventListeners() {
             shopLogo: document.getElementById('set-shop-logo').value,
             shopUpi: document.getElementById('set-shop-upi') ? document.getElementById('set-shop-upi').value : '',
             printerType: document.getElementById('set-printer-type').value,
+            printerName: document.getElementById('set-printer-name') ? document.getElementById('set-printer-name').value.trim() : 'Default System Printer',
+            printCopies: document.getElementById('set-print-copies') ? Number(document.getElementById('set-print-copies').value) : 1,
             gstDefault: document.getElementById('set-gst-default').checked,
+            kotEnabled: document.getElementById('set-kot-enabled') ? document.getElementById('set-kot-enabled').checked : true,
+            enableWaiterSelect: document.getElementById('set-enable-waiter') ? document.getElementById('set-enable-waiter').checked : false,
+            enableDoctorSelect: document.getElementById('set-enable-doctor') ? document.getElementById('set-enable-doctor').checked : false,
+            enableTableMgmt: document.getElementById('set-enable-table-mgmt') ? document.getElementById('set-enable-table-mgmt').checked : false,
             currency: document.getElementById('set-currency').value
         };
         localStorage.setItem('mediflow_settings', JSON.stringify(settings));
@@ -1266,6 +1376,8 @@ function setupEventListeners() {
                 case 'o': e.preventDefault(); switchSection('digital-orders'); break;
                 case 'a': e.preventDefault(); switchSection('users'); break;
                 case 't': e.preventDefault(); switchSection('settings'); break;
+                case 'w': e.preventDefault(); switchSection('staff-management'); break;
+                case 'l': e.preventDefault(); switchSection('barcode-labels'); break;
                 case 'n': 
                     e.preventDefault();
                     if (activeSection === 'products') openProductModal();
@@ -1282,6 +1394,12 @@ function setupEventListeners() {
                     if (activeSection === 'billing') {
                         e.preventDefault();
                         if (typeof clearCart === 'function') clearCart();
+                    }
+                    break;
+                case 'k':
+                    if (activeSection === 'billing') {
+                        e.preventDefault();
+                        if (typeof printKOT === 'function') printKOT();
                     }
                     break;
                 case '1':
@@ -2245,6 +2363,14 @@ function processSale(shouldPrint, shouldWhatsApp = false) {
         grandTotal = -grandTotal;
     }
 
+    const waiterSelect = document.getElementById('billing-waiter-select');
+    const doctorInput = document.getElementById('billing-doctor-name');
+    const tableSelect = document.getElementById('billing-table-select');
+
+    const waiterName = (waiterSelect && waiterSelect.value) ? waiterSelect.value : '';
+    const doctorName = (doctorInput && doctorInput.value) ? doctorInput.value.trim() : '';
+    const tableName = (tableSelect && tableSelect.value) ? tableSelect.value : '';
+
     const saleData = {
         id: 'S' + Date.now(),
         invoiceNo: finalInvoiceNo,
@@ -2256,7 +2382,10 @@ function processSale(shouldPrint, shouldWhatsApp = false) {
         grandTotal: grandTotal,
         paymentMode: currentPayMode,
         date: new Date().toISOString(),
-        isReturn: isReturnMode
+        isReturn: isReturnMode,
+        waiterName: waiterName,
+        doctorName: doctorName,
+        tableName: tableName
     };
 
     // Update Stock using Unit Deduction
@@ -2588,9 +2717,10 @@ function renderSalesHistory() {
                 <td><strong>${settings.currency}${amount.toFixed(2)}</strong></td>
                 <td>${itemsCount} items</td>
                 <td>
-                    <button class="btn btn-outline" onclick="reprintBill('${s.id}')" style="padding: 5px;"><i data-lucide="printer" style="width: 16px;"></i></button>
-                    <button class="btn btn-outline" onclick="sendWhatsAppBill('${s.id}')" style="padding: 5px; color: #25d366;"><i data-lucide="message-square" style="width: 16px;"></i></button>
-                    ${sessionStorage.getItem('mediflow_user') === 'VIKI' ? `<button class="btn btn-outline" onclick="deleteSale('${s.id}')" style="padding: 5px; color: var(--danger-color);"><i data-lucide="trash" style="width: 16px;"></i></button>` : ''}
+                    <button class="btn btn-outline" onclick="reprintBill('${s.id}')" title="Reprint Bill" style="padding: 5px;"><i data-lucide="printer" style="width: 16px;"></i></button>
+                    <button class="btn btn-outline" onclick="sendWhatsAppBill('${s.id}')" title="WhatsApp Bill" style="padding: 5px; color: #25d366;"><i data-lucide="message-square" style="width: 16px;"></i></button>
+                    ${!s.isReturn ? `<button class="btn btn-outline" onclick="openReturnBillModal('${s.invoiceNo || s.id}')" title="Return Bill" style="padding: 5px; color: var(--danger-color);"><i data-lucide="rotate-ccw" style="width: 16px;"></i></button>` : ''}
+                    ${sessionStorage.getItem('mediflow_user') === 'VIKI' ? `<button class="btn btn-outline" onclick="deleteSale('${s.id}')" title="Delete Sale" style="padding: 5px; color: var(--danger-color);"><i data-lucide="trash" style="width: 16px;"></i></button>` : ''}
                 </td>
             `;
             tbody.appendChild(tr);
@@ -5030,3 +5160,2408 @@ window.copyDigitalMenuLink = copyDigitalMenuLink;
 window.showDigitalMenuQRCode = showDigitalMenuQRCode;
 window.closeQRCodeModal = closeQRCodeModal;
 window.printQRCodePoster = printQRCodePoster;
+
+// --- Staff Management & Payroll Module ---
+let activeStaffTab = 'profiles';
+let tempDailyAttendance = {};
+
+function switchStaffSubTab(tabName) {
+    activeStaffTab = tabName;
+    document.querySelectorAll('.staff-subtab-btn').forEach(btn => {
+        if (btn.dataset.staffTab === tabName) btn.classList.add('active');
+        else btn.classList.remove('active');
+    });
+
+    document.querySelectorAll('.staff-subtab-content').forEach(content => {
+        content.style.display = 'none';
+    });
+
+    const target = document.getElementById(`staff-subtab-${tabName}`);
+    if (target) target.style.display = 'block';
+
+    if (tabName === 'profiles') renderStaffProfiles();
+    else if (tabName === 'attendance') renderManualAttendance();
+    else if (tabName === 'advances') renderStaffAdvances();
+    else if (tabName === 'payroll') renderPayroll();
+    
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function renderStaffManagement() {
+    switchStaffSubTab(activeStaffTab || 'profiles');
+}
+
+function renderStaffProfiles() {
+    const tableBody = document.getElementById('staff-table-body');
+    if (!tableBody) return;
+
+    const searchTerm = (document.getElementById('staff-search-input')?.value || '').toLowerCase();
+    const filtered = staffList.filter(s => 
+        (s.name || '').toLowerCase().includes(searchTerm) || 
+        (s.phone && s.phone.includes(searchTerm)) ||
+        (s.role && s.role.toLowerCase().includes(searchTerm))
+    );
+
+    // Compute Stats
+    const totalStaff = staffList.length;
+    const activeStaff = staffList.filter(s => s.status === 'Active').length;
+    
+    let totalPendingAdvances = 0;
+    staffList.forEach(s => {
+        totalPendingAdvances += getStaffOutstandingAdvance(s.id);
+    });
+
+    let totalMonthlyBase = staffList.reduce((acc, s) => {
+        if (s.status === 'Active') {
+            return acc + (s.salaryType === 'Monthly' ? Number(s.salaryRate || 0) : Number(s.salaryRate || 0) * 26);
+        }
+        return acc;
+    }, 0);
+
+    if (document.getElementById('staff-stat-total')) document.getElementById('staff-stat-total').textContent = totalStaff;
+    if (document.getElementById('staff-stat-active')) document.getElementById('staff-stat-active').textContent = activeStaff;
+    if (document.getElementById('staff-stat-advances')) document.getElementById('staff-stat-advances').textContent = `₹${totalPendingAdvances.toFixed(2)}`;
+    if (document.getElementById('staff-stat-payroll')) document.getElementById('staff-stat-payroll').textContent = `₹${totalMonthlyBase.toFixed(2)}`;
+
+    tableBody.innerHTML = '';
+    if (filtered.length === 0) {
+        tableBody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:1.5rem;">No staff members found</td></tr>`;
+        return;
+    }
+
+    filtered.forEach(s => {
+        const advBal = getStaffOutstandingAdvance(s.id);
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><strong>${s.id}</strong></td>
+            <td><strong>${escapeHtml(s.name)}</strong></td>
+            <td>${escapeHtml(s.role || '-')}</td>
+            <td>${escapeHtml(s.phone || '-')}</td>
+            <td><span class="badge-status" style="background:#e0f2fe; color:#0369a1;">${s.salaryType || 'Monthly'}</span></td>
+            <td>₹${Number(s.salaryRate || 0).toFixed(2)}${s.salaryType === 'Daily' ? ' / day' : ' / mo'}</td>
+            <td style="font-weight:600; color:${advBal > 0 ? '#dc2626' : 'var(--text-main)'};">₹${advBal.toFixed(2)}</td>
+            <td><span class="badge-status ${s.status === 'Active' ? 'badge-active' : 'badge-inactive'}">${s.status || 'Active'}</span></td>
+            <td>
+                <div style="display:flex; gap:6px;">
+                    <button class="btn btn-outline" style="padding:4px 8px; font-size:0.8rem;" onclick="openStaffModal('${s.id}')" title="Edit Staff">
+                        <i data-lucide="edit-3"></i>
+                    </button>
+                    <button class="btn btn-outline" style="padding:4px 8px; font-size:0.8rem; color:#dc2626;" onclick="deleteStaff('${s.id}')" title="Delete Staff">
+                        <i data-lucide="trash-2"></i>
+                    </button>
+                    <button class="btn btn-outline" style="padding:4px 8px; font-size:0.8rem;" onclick="openAdvanceModal('${s.id}', 'given')" title="Give Advance">
+                        <i data-lucide="plus-circle"></i> Adv
+                    </button>
+                </div>
+            </td>
+        `;
+        tableBody.appendChild(tr);
+    });
+
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function getStaffOutstandingAdvance(staffId) {
+    let totalGiven = 0;
+    let totalReturnedOrDeducted = 0;
+    staffAdvances.filter(a => a.staffId === staffId).forEach(a => {
+        if (a.type === 'given') totalGiven += Number(a.amount || 0);
+        else totalReturnedOrDeducted += Number(a.amount || 0);
+    });
+    return Math.max(0, totalGiven - totalReturnedOrDeducted);
+}
+
+function openStaffModal(staffId = null) {
+    const modal = document.getElementById('staff-modal');
+    if (!modal) return;
+    document.getElementById('staff-form').reset();
+    document.getElementById('edit-staff-id').value = '';
+
+    if (staffId) {
+        const staff = staffList.find(s => s.id === staffId);
+        if (staff) {
+            document.getElementById('staff-modal-title').textContent = 'Edit Staff Member';
+            document.getElementById('edit-staff-id').value = staff.id;
+            document.getElementById('staff-name').value = staff.name;
+            document.getElementById('staff-phone').value = staff.phone || '';
+            document.getElementById('staff-role').value = staff.role || 'Cashier';
+            document.getElementById('staff-salary-type').value = staff.salaryType || 'Monthly';
+            document.getElementById('staff-salary-rate').value = staff.salaryRate || 0;
+            document.getElementById('staff-joining-date').value = staff.joiningDate || '';
+            document.getElementById('staff-status').value = staff.status || 'Active';
+            document.getElementById('staff-address').value = staff.address || '';
+        }
+    } else {
+        document.getElementById('staff-modal-title').textContent = 'Add New Staff Member';
+        document.getElementById('staff-joining-date').value = new Date().toISOString().split('T')[0];
+    }
+    modal.style.display = 'flex';
+}
+
+function closeStaffModal() {
+    const modal = document.getElementById('staff-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+function saveStaff(e) {
+    e.preventDefault();
+    const editId = document.getElementById('edit-staff-id').value;
+    const name = document.getElementById('staff-name').value.trim();
+    const phone = document.getElementById('staff-phone').value.trim();
+    const role = document.getElementById('staff-role').value;
+    const salaryType = document.getElementById('staff-salary-type').value;
+    const salaryRate = Number(document.getElementById('staff-salary-rate').value) || 0;
+    const joiningDate = document.getElementById('staff-joining-date').value;
+    const status = document.getElementById('staff-status').value;
+    const address = document.getElementById('staff-address').value.trim();
+
+    if (editId) {
+        const index = staffList.findIndex(s => s.id === editId);
+        if (index !== -1) {
+            staffList[index] = { ...staffList[index], name, phone, role, salaryType, salaryRate, joiningDate, status, address };
+        }
+    } else {
+        const newId = 'STF' + String(staffList.length + 1).padStart(2, '0');
+        staffList.push({ id: newId, name, phone, role, salaryType, salaryRate, joiningDate, status, address });
+    }
+
+    localStorage.setItem('mediflow_staff', JSON.stringify(staffList));
+    syncToCloud('staff', staffList);
+    closeStaffModal();
+    renderStaffProfiles();
+}
+
+function deleteStaff(staffId) {
+    if (!confirm('Are you sure you want to delete this staff member?')) return;
+    staffList = staffList.filter(s => s.id !== staffId);
+    localStorage.setItem('mediflow_staff', JSON.stringify(staffList));
+    syncToCloud('staff', staffList);
+    renderStaffProfiles();
+}
+
+function renderManualAttendance() {
+    const picker = document.getElementById('attendance-date-picker');
+    if (picker && !picker.value) {
+        picker.value = new Date().toISOString().split('T')[0];
+    }
+    const selectedDate = picker ? picker.value : new Date().toISOString().split('T')[0];
+    const tableBody = document.getElementById('attendance-table-body');
+    if (!tableBody) return;
+
+    // Load saved logs for selected date
+    const existingLog = attendanceLogs.find(l => l.date === selectedDate);
+    const savedMap = {};
+    if (existingLog && existingLog.records) {
+        existingLog.records.forEach(r => { savedMap[r.staffId] = r; });
+    }
+
+    const activeStaff = staffList.filter(s => s.status === 'Active');
+    tableBody.innerHTML = '';
+
+    if (activeStaff.length === 0) {
+        tableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:1.5rem;">No active staff members available. Please add staff first.</td></tr>`;
+        return;
+    }
+
+    activeStaff.forEach(s => {
+        const saved = savedMap[s.id] || { status: 'Present', overtime: 0, remarks: '' };
+        const currentStatus = tempDailyAttendance[s.id]?.status || saved.status || 'Present';
+        const currentOt = tempDailyAttendance[s.id]?.overtime !== undefined ? tempDailyAttendance[s.id].overtime : (saved.overtime || 0);
+        const currentRemarks = tempDailyAttendance[s.id]?.remarks !== undefined ? tempDailyAttendance[s.id].remarks : (saved.remarks || '');
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><strong>${escapeHtml(s.name)}</strong> <small style="color:var(--text-muted);">(${s.id})</small></td>
+            <td>${escapeHtml(s.role || '-')}</td>
+            <td>
+                <div class="attendance-badge-group">
+                    <button type="button" class="att-btn ${currentStatus === 'Present' ? 'active-present' : ''}" onclick="setStaffAttStatus('${s.id}', 'Present')">Present</button>
+                    <button type="button" class="att-btn ${currentStatus === 'Absent' ? 'active-absent' : ''}" onclick="setStaffAttStatus('${s.id}', 'Absent')">Absent</button>
+                    <button type="button" class="att-btn ${currentStatus === 'Half Day' ? 'active-halfday' : ''}" onclick="setStaffAttStatus('${s.id}', 'Half Day')">Half Day</button>
+                    <button type="button" class="att-btn ${currentStatus === 'Leave' ? 'active-leave' : ''}" onclick="setStaffAttStatus('${s.id}', 'Leave')">Leave</button>
+                </div>
+            </td>
+            <td>
+                <input type="number" step="0.5" class="form-control" style="width: 80px;" value="${currentOt}" onchange="setStaffAttOvertime('${s.id}', this.value)">
+            </td>
+            <td>
+                <input type="text" class="form-control" placeholder="Optional notes" value="${escapeHtml(currentRemarks)}" onchange="setStaffAttRemarks('${s.id}', this.value)">
+            </td>
+        `;
+        tableBody.appendChild(tr);
+    });
+}
+
+function setStaffAttStatus(staffId, status) {
+    if (!tempDailyAttendance[staffId]) tempDailyAttendance[staffId] = {};
+    tempDailyAttendance[staffId].status = status;
+    renderManualAttendance();
+}
+
+function setStaffAttOvertime(staffId, ot) {
+    if (!tempDailyAttendance[staffId]) tempDailyAttendance[staffId] = {};
+    tempDailyAttendance[staffId].overtime = Number(ot) || 0;
+}
+
+function setStaffAttRemarks(staffId, remarks) {
+    if (!tempDailyAttendance[staffId]) tempDailyAttendance[staffId] = {};
+    tempDailyAttendance[staffId].remarks = remarks;
+}
+
+function markAllPresent() {
+    const activeStaff = staffList.filter(s => s.status === 'Active');
+    activeStaff.forEach(s => {
+        if (!tempDailyAttendance[s.id]) tempDailyAttendance[s.id] = {};
+        tempDailyAttendance[s.id].status = 'Present';
+    });
+    renderManualAttendance();
+}
+
+function saveDailyAttendance() {
+    const picker = document.getElementById('attendance-date-picker');
+    const selectedDate = picker ? picker.value : new Date().toISOString().split('T')[0];
+    if (!selectedDate) {
+        alert('Please select a date');
+        return;
+    }
+
+    const activeStaff = staffList.filter(s => s.status === 'Active');
+    const records = activeStaff.map(s => {
+        const saved = tempDailyAttendance[s.id] || {};
+        const existingLog = attendanceLogs.find(l => l.date === selectedDate);
+        const existingRec = existingLog && existingLog.records ? existingLog.records.find(r => r.staffId === s.id) : null;
+
+        return {
+            staffId: s.id,
+            status: saved.status || (existingRec ? existingRec.status : 'Present'),
+            overtime: saved.overtime !== undefined ? saved.overtime : (existingRec ? existingRec.overtime : 0),
+            remarks: saved.remarks !== undefined ? saved.remarks : (existingRec ? existingRec.remarks : '')
+        };
+    });
+
+    const index = attendanceLogs.findIndex(l => l.date === selectedDate);
+    if (index !== -1) {
+        attendanceLogs[index].records = records;
+    } else {
+        attendanceLogs.push({ date: selectedDate, records });
+    }
+
+    localStorage.setItem('mediflow_attendance', JSON.stringify(attendanceLogs));
+    syncToCloud('attendance', attendanceLogs);
+    tempDailyAttendance = {};
+    alert(`Attendance for ${selectedDate} saved successfully!`);
+    renderManualAttendance();
+}
+
+function renderStaffAdvances() {
+    const tableBody = document.getElementById('advances-table-body');
+    const filterSelect = document.getElementById('advance-filter-staff');
+    if (!tableBody) return;
+
+    // Populate filter select options
+    if (filterSelect) {
+        const currentVal = filterSelect.value;
+        filterSelect.innerHTML = `<option value="all">All Staff Members</option>`;
+        staffList.forEach(s => {
+            filterSelect.innerHTML += `<option value="${s.id}">${escapeHtml(s.name)}</option>`;
+        });
+        filterSelect.value = currentVal || 'all';
+    }
+
+    const filterStaffId = filterSelect ? filterSelect.value : 'all';
+    const filtered = staffAdvances.filter(a => filterStaffId === 'all' || a.staffId === filterStaffId);
+
+    // Compute Totals
+    let totalGiven = 0;
+    let totalReturned = 0;
+
+    staffAdvances.forEach(a => {
+        if (a.type === 'given') totalGiven += Number(a.amount || 0);
+        else totalReturned += Number(a.amount || 0);
+    });
+
+    if (document.getElementById('advance-stat-given')) document.getElementById('advance-stat-given').textContent = `₹${totalGiven.toFixed(2)}`;
+    if (document.getElementById('advance-stat-returned')) document.getElementById('advance-stat-returned').textContent = `₹${totalReturned.toFixed(2)}`;
+    if (document.getElementById('advance-stat-net')) document.getElementById('advance-stat-net').textContent = `₹${Math.max(0, totalGiven - totalReturned).toFixed(2)}`;
+
+    tableBody.innerHTML = '';
+    if (filtered.length === 0) {
+        tableBody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:1.5rem;">No advance transactions recorded</td></tr>`;
+        return;
+    }
+
+    // Sort descending by date
+    filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    filtered.forEach(a => {
+        const staff = staffList.find(s => s.id === a.staffId) || { name: 'Unknown' };
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${a.date || '-'}</td>
+            <td><strong>${escapeHtml(staff.name)}</strong></td>
+            <td>
+                <span class="badge-status" style="background:${a.type === 'given' ? '#fee2e2' : '#d1fae5'}; color:${a.type === 'given' ? '#dc2626' : '#065f46'};">
+                    ${a.type === 'given' ? 'Advance Given (+)' : 'Return / Deducted (-)'}
+                </span>
+            </td>
+            <td><strong>₹${Number(a.amount || 0).toFixed(2)}</strong></td>
+            <td>${escapeHtml(a.paymentMode || 'Cash')}</td>
+            <td>${escapeHtml(a.notes || '-')}</td>
+            <td>
+                <button class="btn btn-outline" style="padding:4px 8px; font-size:0.8rem; color:#dc2626;" onclick="deleteAdvanceRecord('${a.id}')" title="Delete Transaction">
+                    <i data-lucide="trash-2"></i>
+                </button>
+            </td>
+        `;
+        tableBody.appendChild(tr);
+    });
+
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function openAdvanceModal(staffId = '', type = 'given') {
+    const modal = document.getElementById('advance-modal');
+    if (!modal) return;
+    document.getElementById('advance-form').reset();
+
+    const staffSelect = document.getElementById('advance-staff-id');
+    if (staffSelect) {
+        staffSelect.innerHTML = '';
+        staffList.forEach(s => {
+            staffSelect.innerHTML += `<option value="${s.id}">${escapeHtml(s.name)} (${s.id})</option>`;
+        });
+        if (staffId) staffSelect.value = staffId;
+    }
+
+    document.getElementById('advance-type').value = type;
+    document.getElementById('advance-date').value = new Date().toISOString().split('T')[0];
+    modal.style.display = 'flex';
+}
+
+function closeAdvanceModal() {
+    const modal = document.getElementById('advance-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+function saveAdvanceRecord(e) {
+    e.preventDefault();
+    const staffId = document.getElementById('advance-staff-id').value;
+    const type = document.getElementById('advance-type').value;
+    const date = document.getElementById('advance-date').value;
+    const amount = Number(document.getElementById('advance-amount').value) || 0;
+    const paymentMode = document.getElementById('advance-mode').value;
+    const notes = document.getElementById('advance-notes').value.trim();
+
+    if (amount <= 0) {
+        alert('Please enter a valid amount');
+        return;
+    }
+
+    const newId = 'ADV' + Date.now();
+    staffAdvances.push({ id: newId, staffId, type, date, amount, paymentMode, notes });
+
+    localStorage.setItem('mediflow_staff_advances', JSON.stringify(staffAdvances));
+    syncToCloud('staff_advances', staffAdvances);
+    closeAdvanceModal();
+    renderStaffAdvances();
+    renderStaffProfiles();
+}
+
+function deleteAdvanceRecord(id) {
+    if (!confirm('Are you sure you want to delete this advance record?')) return;
+    staffAdvances = staffAdvances.filter(a => a.id !== id);
+    localStorage.setItem('mediflow_staff_advances', JSON.stringify(staffAdvances));
+    syncToCloud('staff_advances', staffAdvances);
+    renderStaffAdvances();
+    renderStaffProfiles();
+}
+
+function renderPayroll() {
+    const monthPicker = document.getElementById('payroll-month-picker');
+    if (monthPicker && !monthPicker.value) {
+        const now = new Date();
+        const yearStr = now.getFullYear();
+        const monthStr = String(now.getMonth() + 1).padStart(2, '0');
+        monthPicker.value = `${yearStr}-${monthStr}`;
+    }
+
+    const selectedMonth = monthPicker ? monthPicker.value : '';
+    const tableBody = document.getElementById('payroll-table-body');
+    if (!tableBody) return;
+
+    tableBody.innerHTML = '';
+    if (staffList.length === 0) {
+        tableBody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:1.5rem;">No staff members available.</td></tr>`;
+        return;
+    }
+
+    const [year, month] = selectedMonth.split('-').map(Number);
+    const totalDaysInMonth = new Date(year, month, 0).getDate();
+
+    staffList.forEach(s => {
+        // Attendance stats for month
+        let presentDays = 0;
+        let halfDays = 0;
+        let overtimeHours = 0;
+
+        attendanceLogs.forEach(log => {
+            if (log.date.startsWith(selectedMonth)) {
+                const rec = log.records ? log.records.find(r => r.staffId === s.id) : null;
+                if (rec) {
+                    if (rec.status === 'Present') presentDays++;
+                    else if (rec.status === 'Half Day') halfDays++;
+                    overtimeHours += Number(rec.overtime || 0);
+                }
+            }
+        });
+
+        const effectivePresentDays = presentDays + (halfDays * 0.5);
+        let grossSalary = 0;
+        if (s.salaryType === 'Daily') {
+            grossSalary = effectivePresentDays * Number(s.salaryRate || 0);
+        } else {
+            const dailyRate = Number(s.salaryRate || 0) / (totalDaysInMonth || 30);
+            grossSalary = effectivePresentDays > 0 ? dailyRate * effectivePresentDays : Number(s.salaryRate || 0);
+        }
+
+        const overtimePay = overtimeHours * 50;
+        grossSalary += overtimePay;
+
+        const outstandingAdv = getStaffOutstandingAdvance(s.id);
+        const autoAdvanceDeduct = Math.min(outstandingAdv, grossSalary);
+
+        // Check if salary already paid for this month
+        const existingPayment = salaryPayments.find(p => p.staffId === s.id && p.monthYear === selectedMonth);
+        const netPayable = Math.max(0, grossSalary - autoAdvanceDeduct);
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><strong>${escapeHtml(s.name)}</strong> <br><small style="color:var(--text-muted);">${s.role || ''}</small></td>
+            <td>${s.salaryType || 'Monthly'} @ ₹${Number(s.salaryRate || 0).toFixed(2)}</td>
+            <td>${effectivePresentDays} / ${totalDaysInMonth} days <br><small style="color:var(--text-muted);">${overtimeHours} hrs OT</small></td>
+            <td><strong>₹${grossSalary.toFixed(2)}</strong></td>
+            <td style="color:#dc2626;">₹${(existingPayment ? existingPayment.advanceDeducted : autoAdvanceDeduct).toFixed(2)}</td>
+            <td style="color:#16a34a;">+₹${(existingPayment ? existingPayment.bonus : 0).toFixed(2)}</td>
+            <td style="font-size:1.05rem; font-weight:700; color:var(--primary-color);">
+                ₹${(existingPayment ? existingPayment.netPayable : netPayable).toFixed(2)}
+            </td>
+            <td>
+                <span class="badge-status ${existingPayment ? 'badge-paid' : 'badge-unpaid'}">
+                    ${existingPayment ? `Paid (₹${existingPayment.amountPaid})` : 'Unpaid'}
+                </span>
+            </td>
+            <td>
+                <div style="display:flex; gap:6px;">
+                    ${existingPayment ? `
+                        <button class="btn btn-outline" style="padding:4px 8px; font-size:0.8rem;" onclick="printPaySlip('${existingPayment.id}')" title="Print Pay Slip">
+                            <i data-lucide="printer"></i> Pay Slip
+                        </button>
+                    ` : `
+                        <button class="btn btn-primary" style="padding:4px 10px; font-size:0.8rem;" onclick="openSalaryPayModal('${s.id}', '${selectedMonth}')">
+                            <i data-lucide="credit-card"></i> Pay Salary
+                        </button>
+                    `}
+                </div>
+            </td>
+        `;
+        tableBody.appendChild(tr);
+    });
+
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function openSalaryPayModal(staffId, monthYear) {
+    const staff = staffList.find(s => s.id === staffId);
+    if (!staff) return;
+
+    const modal = document.getElementById('salary-pay-modal');
+    if (!modal) return;
+
+    const [year, month] = monthYear.split('-').map(Number);
+    const totalDaysInMonth = new Date(year, month, 0).getDate();
+
+    let presentDays = 0;
+    let halfDays = 0;
+    let overtimeHours = 0;
+
+    attendanceLogs.forEach(log => {
+        if (log.date.startsWith(monthYear)) {
+            const rec = log.records ? log.records.find(r => r.staffId === staff.id) : null;
+            if (rec) {
+                if (rec.status === 'Present') presentDays++;
+                else if (rec.status === 'Half Day') halfDays++;
+                overtimeHours += Number(rec.overtime || 0);
+            }
+        }
+    });
+
+    const effectivePresentDays = presentDays + (halfDays * 0.5);
+    let grossSalary = 0;
+    if (staff.salaryType === 'Daily') {
+        grossSalary = effectivePresentDays * Number(staff.salaryRate || 0);
+    } else {
+        const dailyRate = Number(staff.salaryRate || 0) / (totalDaysInMonth || 30);
+        grossSalary = effectivePresentDays > 0 ? dailyRate * effectivePresentDays : Number(staff.salaryRate || 0);
+    }
+    grossSalary += overtimeHours * 50;
+
+    const outstandingAdv = getStaffOutstandingAdvance(staff.id);
+    const suggestedAdvanceDeduct = Math.min(outstandingAdv, grossSalary);
+
+    document.getElementById('sp-staff-id').value = staff.id;
+    document.getElementById('sp-month-year').value = monthYear;
+    document.getElementById('sp-staff-details').textContent = `Staff: ${staff.name} (${staff.role || 'Staff'}) | Month: ${monthYear}`;
+    document.getElementById('sp-calculation-summary').textContent = `Calculated Gross: ₹${grossSalary.toFixed(2)} | Outstanding Advances Balance: ₹${outstandingAdv.toFixed(2)}`;
+
+    document.getElementById('sp-gross-salary').value = grossSalary.toFixed(2);
+    document.getElementById('sp-advance-deduction').value = suggestedAdvanceDeduct.toFixed(2);
+    document.getElementById('sp-bonus').value = '0';
+    document.getElementById('sp-other-deduction').value = '0';
+    document.getElementById('sp-payment-date').value = new Date().toISOString().split('T')[0];
+
+    recalculateNetPayable();
+    modal.style.display = 'flex';
+}
+
+function recalculateNetPayable() {
+    const gross = Number(document.getElementById('sp-gross-salary').value) || 0;
+    const advDeduct = Number(document.getElementById('sp-advance-deduction').value) || 0;
+    const bonus = Number(document.getElementById('sp-bonus').value) || 0;
+    const otherDeduct = Number(document.getElementById('sp-other-deduction').value) || 0;
+
+    const net = Math.max(0, gross - advDeduct + bonus - otherDeduct);
+    document.getElementById('sp-net-payable').value = net.toFixed(2);
+    document.getElementById('sp-amount-paid').value = net.toFixed(2);
+}
+
+function closeSalaryPayModal() {
+    const modal = document.getElementById('salary-pay-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+function processSalaryPayment(e) {
+    e.preventDefault();
+    const staffId = document.getElementById('sp-staff-id').value;
+    const monthYear = document.getElementById('sp-month-year').value;
+    const grossSalary = Number(document.getElementById('sp-gross-salary').value) || 0;
+    const advanceDeducted = Number(document.getElementById('sp-advance-deduction').value) || 0;
+    const bonus = Number(document.getElementById('sp-bonus').value) || 0;
+    const otherDeductions = Number(document.getElementById('sp-other-deduction').value) || 0;
+    const netPayable = Number(document.getElementById('sp-net-payable').value) || 0;
+    const amountPaid = Number(document.getElementById('sp-amount-paid').value) || 0;
+    const paymentDate = document.getElementById('sp-payment-date').value;
+    const paymentMode = document.getElementById('sp-payment-mode').value;
+    const referenceNo = document.getElementById('sp-ref-no').value.trim();
+    const remarks = document.getElementById('sp-remarks').value.trim();
+
+    if (amountPaid <= 0) {
+        alert('Please enter a valid payout amount');
+        return;
+    }
+
+    const paymentId = 'PAY' + Date.now();
+    const paymentRecord = {
+        id: paymentId,
+        staffId,
+        monthYear,
+        grossSalary,
+        advanceDeducted,
+        bonus,
+        otherDeductions,
+        netPayable,
+        amountPaid,
+        paymentDate,
+        paymentMode,
+        referenceNo,
+        remarks,
+        paidAt: new Date().toISOString()
+    };
+
+    salaryPayments.push(paymentRecord);
+    localStorage.setItem('mediflow_salary_payments', JSON.stringify(salaryPayments));
+
+    if (advanceDeducted > 0) {
+        staffAdvances.push({
+            id: 'ADV_DED_' + Date.now(),
+            staffId,
+            type: 'returned',
+            date: paymentDate,
+            amount: advanceDeducted,
+            paymentMode: 'Salary Deduction',
+            notes: `Auto-deducted during ${monthYear} salary payment`
+        });
+        localStorage.setItem('mediflow_staff_advances', JSON.stringify(staffAdvances));
+        syncToCloud('staff_advances', staffAdvances);
+    }
+
+    syncToCloud('salary_payments', salaryPayments);
+    closeSalaryPayModal();
+    alert('Salary payment recorded successfully!');
+    renderPayroll();
+    printPaySlip(paymentId);
+}
+
+function printPaySlip(paymentId) {
+    const payment = salaryPayments.find(p => p.id === paymentId);
+    if (!payment) return;
+
+    const staff = staffList.find(s => s.id === payment.staffId) || { name: 'Staff Member', role: 'Employee', phone: '' };
+    const shopName = settings.shopName || 'T7 BillPro';
+    const shopAddress = settings.shopAddress || '';
+    const shopPhone = settings.shopPhone || '';
+
+    const container = document.getElementById('payslip-printable-content');
+    if (!container) return;
+
+    container.innerHTML = `
+        <div style="text-align: center; border-bottom: 2px dashed #ccc; padding-bottom: 1rem; margin-bottom: 1rem;">
+            <h2 style="margin: 0; color: #2563eb;">${escapeHtml(shopName)}</h2>
+            <p style="margin: 2px 0; font-size: 0.85rem; color: #555;">${escapeHtml(shopAddress)}</p>
+            <p style="margin: 2px 0; font-size: 0.85rem; color: #555;">Phone: ${escapeHtml(shopPhone)}</p>
+            <h3 style="margin-top: 10px; margin-bottom: 0; background: #f1f5f9; display: inline-block; padding: 4px 16px; border-radius: 4px;">SALARY PAY SLIP - ${payment.monthYear}</h3>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; margin-bottom: 1rem; font-size: 0.9rem;">
+            <div>
+                <strong>Staff Details:</strong><br>
+                Name: ${escapeHtml(staff.name)}<br>
+                Designation: ${escapeHtml(staff.role || 'Staff')}<br>
+                Phone: ${escapeHtml(staff.phone || '-')}
+            </div>
+            <div style="text-align: right;">
+                <strong>Payment Ref:</strong> ${payment.id}<br>
+                <strong>Date:</strong> ${payment.paymentDate}<br>
+                <strong>Payment Mode:</strong> ${payment.paymentMode} ${payment.referenceNo ? `(${payment.referenceNo})` : ''}
+            </div>
+        </div>
+
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; font-size: 0.9rem;">
+            <thead>
+                <tr style="background: #f8fafc; border-bottom: 2px solid #e2e8f0; text-align: left;">
+                    <th style="padding: 8px;">Description</th>
+                    <th style="padding: 8px; text-align: right;">Amount (₹)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr style="border-bottom: 1px solid #eee;">
+                    <td style="padding: 8px;">Gross Calculated Salary</td>
+                    <td style="padding: 8px; text-align: right;">₹${Number(payment.grossSalary).toFixed(2)}</td>
+                </tr>
+                ${payment.advanceDeducted > 0 ? `
+                <tr style="border-bottom: 1px solid #eee; color: #dc2626;">
+                    <td style="padding: 8px;">Less: Advance Deduction</td>
+                    <td style="padding: 8px; text-align: right;">-₹${Number(payment.advanceDeducted).toFixed(2)}</td>
+                </tr>
+                ` : ''}
+                ${payment.bonus > 0 ? `
+                <tr style="border-bottom: 1px solid #eee; color: #16a34a;">
+                    <td style="padding: 8px;">Add: Bonus / Incentive</td>
+                    <td style="padding: 8px; text-align: right;">+₹${Number(payment.bonus).toFixed(2)}</td>
+                </tr>
+                ` : ''}
+                ${payment.otherDeductions > 0 ? `
+                <tr style="border-bottom: 1px solid #eee; color: #dc2626;">
+                    <td style="padding: 8px;">Less: Other Deductions</td>
+                    <td style="padding: 8px; text-align: right;">-₹${Number(payment.otherDeductions).toFixed(2)}</td>
+                </tr>
+                ` : ''}
+                <tr style="border-top: 2px solid #333; font-weight: bold; font-size: 1rem;">
+                    <td style="padding: 10px 8px;">Net Paid Salary</td>
+                    <td style="padding: 10px 8px; text-align: right; color: #2563eb;">₹${Number(payment.amountPaid).toFixed(2)}</td>
+                </tr>
+            </tbody>
+        </table>
+
+        ${payment.remarks ? `<p style="font-size: 0.85rem; color: #666; margin-bottom: 1.5rem;"><strong>Remarks:</strong> ${escapeHtml(payment.remarks)}</p>` : ''}
+
+        <div style="display: flex; justify-content: space-between; margin-top: 3rem; font-size: 0.85rem;">
+            <div>_____________________<br>Employer Signature</div>
+            <div>_____________________<br>Staff Signature</div>
+        </div>
+    `;
+
+    const modal = document.getElementById('payslip-modal');
+    if (modal) modal.style.display = 'flex';
+}
+
+function closePaySlipModal() {
+    const modal = document.getElementById('payslip-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+function triggerPrintPaySlip() {
+    window.print();
+}
+
+window.switchStaffSubTab = switchStaffSubTab;
+window.renderStaffManagement = renderStaffManagement;
+window.renderStaffProfiles = renderStaffProfiles;
+window.openStaffModal = openStaffModal;
+window.closeStaffModal = closeStaffModal;
+window.saveStaff = saveStaff;
+window.deleteStaff = deleteStaff;
+window.renderManualAttendance = renderManualAttendance;
+window.setStaffAttStatus = setStaffAttStatus;
+window.setStaffAttOvertime = setStaffAttOvertime;
+window.setStaffAttRemarks = setStaffAttRemarks;
+window.markAllPresent = markAllPresent;
+window.saveDailyAttendance = saveDailyAttendance;
+window.renderStaffAdvances = renderStaffAdvances;
+window.openAdvanceModal = openAdvanceModal;
+window.closeAdvanceModal = closeAdvanceModal;
+window.saveAdvanceRecord = saveAdvanceRecord;
+window.deleteAdvanceRecord = deleteAdvanceRecord;
+window.renderPayroll = renderPayroll;
+window.openSalaryPayModal = openSalaryPayModal;
+window.recalculateNetPayable = recalculateNetPayable;
+window.closeSalaryPayModal = closeSalaryPayModal;
+window.processSalaryPayment = processSalaryPayment;
+window.printPaySlip = printPaySlip;
+window.closePaySlipModal = closePaySlipModal;
+window.triggerPrintPaySlip = triggerPrintPaySlip;
+
+// --- Customer Digital Menu View & Ordering ---
+let isCustomerViewActive = false;
+
+function enableCustomerMenuView() {
+    isCustomerViewActive = true;
+    document.body.classList.add('customer-mode');
+    
+    const loginScreen = document.getElementById('login-screen');
+    const appContainer = document.getElementById('app-container');
+    
+    if (loginScreen) loginScreen.style.display = 'none';
+    if (appContainer) {
+        appContainer.style.display = 'flex';
+        appContainer.classList.add('active-app');
+    }
+
+    loadBranchData();
+
+    // Populate customer header with shop info
+    if (document.getElementById('cust-shop-name')) {
+        document.getElementById('cust-shop-name').textContent = settings.shopName || 'T7 BillPro';
+    }
+    if (document.getElementById('cust-shop-phone')) {
+        document.getElementById('cust-shop-phone').textContent = settings.shopAddress ? `${settings.shopAddress} | ${settings.shopPhone || ''}` : (settings.shopPhone || 'Digital Catalog & Menu');
+    }
+
+    switchSection('menu-card');
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function openAdminLoginFromCustomerView() {
+    document.body.classList.remove('customer-mode');
+    sessionStorage.removeItem('mediflow_logged_in');
+    sessionStorage.removeItem('mediflow_user');
+    window.location.hash = '';
+    window.location.reload();
+}
+
+function openMenuOrderCheckoutModal() {
+    if (!cart || cart.length === 0) {
+        alert('Your digital cart is empty. Please add items to place an order.');
+        return;
+    }
+
+    const modal = document.getElementById('menu-checkout-modal');
+    if (!modal) return;
+
+    const totalQty = cart.reduce((sum, item) => sum + Number(item.quantity || 1), 0);
+    const totalPrice = cart.reduce((sum, item) => sum + (Number(item.quantity || 1) * Number(item.salePrice || item.mrp || 0)), 0);
+
+    if (document.getElementById('checkout-item-count')) document.getElementById('checkout-item-count').textContent = totalQty;
+    if (document.getElementById('checkout-total-amount')) document.getElementById('checkout-total-amount').textContent = totalPrice.toFixed(2);
+
+    modal.style.display = 'flex';
+}
+
+function closeMenuOrderCheckoutModal() {
+    const modal = document.getElementById('menu-checkout-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+function submitCustomerDigitalOrder(e) {
+    e.preventDefault();
+    if (!cart || cart.length === 0) {
+        alert('Cart is empty.');
+        return;
+    }
+
+    const name = document.getElementById('cust-order-name').value.trim();
+    const phone = document.getElementById('cust-order-phone').value.trim();
+    const orderType = document.getElementById('cust-order-type').value;
+    const notes = document.getElementById('cust-order-notes').value.trim();
+
+    const orderRef = 'ORD' + String(Date.now()).slice(-6);
+    const totalPrice = cart.reduce((sum, item) => sum + (Number(item.quantity || 1) * Number(item.salePrice || item.mrp || 0)), 0);
+
+    const digitalOrder = {
+        id: orderRef,
+        date: new Date().toISOString(),
+        customerName: name,
+        customerPhone: phone,
+        orderType: orderType,
+        notes: notes,
+        items: [...cart],
+        totalAmount: totalPrice,
+        status: 'Pending',
+        createdAt: new Date().toLocaleString()
+    };
+
+    let digitalOrders = JSON.parse(localStorage.getItem('mediflow_digital_orders')) || [];
+    digitalOrders.unshift(digitalOrder);
+    localStorage.setItem('mediflow_digital_orders', JSON.stringify(digitalOrders));
+    syncToCloud('digital_orders', digitalOrders);
+
+    closeMenuOrderCheckoutModal();
+
+    if (document.getElementById('success-order-ref')) document.getElementById('success-order-ref').textContent = orderRef;
+    const successModal = document.getElementById('menu-order-success-modal');
+    if (successModal) successModal.style.display = 'flex';
+
+    cart = [];
+    if (typeof updateMenuOrderDrawer === 'function') updateMenuOrderDrawer();
+    if (typeof renderMenuCard === 'function') renderMenuCard();
+}
+
+function closeMenuOrderSuccessModal() {
+    const modal = document.getElementById('menu-order-success-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+window.addEventListener('hashchange', () => {
+    if ((window.location.hash === '#menu-card' || window.location.hash === '#menu') && sessionStorage.getItem('mediflow_logged_in') !== 'true') {
+        enableCustomerMenuView();
+    }
+});
+
+window.enableCustomerMenuView = enableCustomerMenuView;
+window.openAdminLoginFromCustomerView = openAdminLoginFromCustomerView;
+window.openMenuOrderCheckoutModal = openMenuOrderCheckoutModal;
+window.closeMenuOrderCheckoutModal = closeMenuOrderCheckoutModal;
+window.submitCustomerDigitalOrder = submitCustomerDigitalOrder;
+window.closeMenuOrderSuccessModal = closeMenuOrderSuccessModal;
+
+// --- KOT (Kitchen Order Ticket) Feature ---
+function loadSettingsFields() {
+    if (document.getElementById('set-shop-name')) document.getElementById('set-shop-name').value = settings.shopName || '';
+    if (document.getElementById('set-shop-address')) document.getElementById('set-shop-address').value = settings.shopAddress || '';
+    if (document.getElementById('set-shop-phone')) document.getElementById('set-shop-phone').value = settings.shopPhone || '';
+    if (document.getElementById('set-shop-gstin')) document.getElementById('set-shop-gstin').value = settings.shopGstin || '';
+    if (document.getElementById('set-shop-logo')) document.getElementById('set-shop-logo').value = settings.shopLogo || '';
+    if (document.getElementById('set-shop-upi')) document.getElementById('set-shop-upi').value = settings.shopUpi || '';
+    if (document.getElementById('set-printer-type')) document.getElementById('set-printer-type').value = settings.printerType || '3inch';
+    if (document.getElementById('set-printer-name')) document.getElementById('set-printer-name').value = settings.printerName || 'Default System Printer';
+    if (document.getElementById('set-print-copies')) document.getElementById('set-print-copies').value = settings.printCopies || 1;
+    if (document.getElementById('set-gst-default')) document.getElementById('set-gst-default').checked = (settings.gstDefault !== false);
+    if (document.getElementById('set-kot-enabled')) document.getElementById('set-kot-enabled').checked = (settings.kotEnabled !== false);
+    if (document.getElementById('set-enable-waiter')) document.getElementById('set-enable-waiter').checked = !!settings.enableWaiterSelect;
+    if (document.getElementById('set-enable-doctor')) document.getElementById('set-enable-doctor').checked = !!settings.enableDoctorSelect;
+    if (document.getElementById('set-enable-table-mgmt')) document.getElementById('set-enable-table-mgmt').checked = !!settings.enableTableMgmt;
+    if (document.getElementById('set-currency')) document.getElementById('set-currency').value = settings.currency || '₹';
+
+    const kotBtn = document.getElementById('print-kot-btn');
+    if (kotBtn) kotBtn.style.display = (settings.kotEnabled !== false) ? 'inline-flex' : 'none';
+
+    if (typeof renderSuperAdminSettingsPermissions === 'function') renderSuperAdminSettingsPermissions();
+    if (typeof applyBranchSettingsPermissions === 'function') applyBranchSettingsPermissions();
+}
+
+function printKOT() {
+    if (!cart || cart.length === 0) {
+        alert('Cart is empty. Please add items to print Kitchen Order Ticket (KOT).');
+        return;
+    }
+
+    const shopName = settings.shopName || 'T7 BillPro';
+    const invoiceNo = document.getElementById('invoice-number')?.value || ('KOT-' + String(Date.now()).slice(-4));
+    const custName = document.getElementById('customer-name')?.value || 'Walk-in Customer';
+    const custPhone = document.getElementById('customer-phone')?.value || '';
+    const nowStr = new Date().toLocaleString();
+    const copies = Math.max(1, Number(settings.printCopies || 1));
+    const printerName = settings.printerName || 'Default System Printer';
+
+    const printWin = window.open('', '_blank');
+    if (!printWin) {
+        alert('Please allow popups to print KOT.');
+        return;
+    }
+
+    let itemsHtml = '';
+    cart.forEach((item, index) => {
+        itemsHtml += `
+            <tr style="border-bottom: 1px dashed #cbd5e1;">
+                <td style="padding: 6px 0; font-size: 1rem;">${index + 1}. <strong>${escapeHtml(item.name)}</strong></td>
+                <td style="padding: 6px 0; text-align: right; font-size: 1.1rem; font-weight: bold;">${item.quantity || 1}</td>
+            </tr>
+        `;
+    });
+
+    let ticketsHtml = '';
+    const copyLabels = ['KITCHEN COPY', 'PANTRY COPY', 'COUNTER COPY', 'EXTRA COPY'];
+
+    for (let i = 0; i < copies; i++) {
+        const copyTag = copyLabels[i] || `COPY ${i + 1}`;
+        ticketsHtml += `
+            <div class="kot-ticket" style="${i > 0 ? 'page-break-before: always; margin-top: 20px;' : ''}">
+                <div class="header">
+                    <h2>KITCHEN ORDER TICKET</h2>
+                    <h3>${escapeHtml(shopName)}</h3>
+                    <div style="font-size: 0.8rem; font-weight: bold; background: #000; color: #fff; display: inline-block; padding: 2px 8px; border-radius: 4px; margin-top: 4px;">${copyTag} (${i + 1}/${copies})</div>
+                </div>
+                <div class="meta">
+                    <div><strong>Ref / Token:</strong> ${escapeHtml(invoiceNo)}</div>
+                    <div><strong>Date & Time:</strong> ${nowStr}</div>
+                    <div><strong>Customer / Table:</strong> ${escapeHtml(custName)} ${custPhone ? `(${custPhone})` : ''}</div>
+                    ${printerName ? `<div style="font-size: 0.75rem; color: #555;">Target Printer: ${escapeHtml(printerName)}</div>` : ''}
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ITEM NAME</th>
+                            <th style="text-align: right;">QTY</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${itemsHtml}
+                    </tbody>
+                </table>
+                <div class="footer">
+                    *** ${copyTag} ***
+                </div>
+            </div>
+        `;
+    }
+
+    printWin.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>KOT - ${invoiceNo} (${copies} Copies)</title>
+            <style>
+                body { font-family: 'Inter', system-ui, sans-serif; margin: 0; padding: 12px; color: #000; width: 280px; }
+                .header { text-align: center; border-bottom: 2px dashed #000; padding-bottom: 8px; margin-bottom: 8px; }
+                .header h2 { margin: 0; font-size: 1.25rem; text-transform: uppercase; letter-spacing: 1px; }
+                .header h3 { margin: 4px 0 0 0; font-size: 0.95rem; color: #333; }
+                .meta { font-size: 0.85rem; margin-bottom: 10px; border-bottom: 1px dashed #000; padding-bottom: 8px; }
+                table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+                th { text-align: left; border-bottom: 1px solid #000; padding-bottom: 4px; font-size: 0.85rem; }
+                .footer { text-align: center; border-top: 2px dashed #000; padding-top: 8px; font-size: 0.85rem; font-weight: bold; }
+                @media print {
+                    .kot-ticket { page-break-after: always; }
+                    .kot-ticket:last-child { page-break-after: avoid; }
+                }
+            </style>
+        </head>
+        <body onload="window.print(); window.close();">
+            ${ticketsHtml}
+        </body>
+        </html>
+    `);
+    printWin.document.close();
+}
+
+window.loadSettingsFields = loadSettingsFields;
+window.printKOT = printKOT;
+
+// --- Product Deduplication & Smart Import ---
+
+function removeDuplicateProducts() {
+    if (!products || products.length === 0) {
+        alert('Product list is empty.');
+        return;
+    }
+
+    const initialCount = products.length;
+    const nameMap = {};
+    const deduplicatedProducts = [];
+    let mergedCount = 0;
+
+    products.forEach(p => {
+        const normName = (p.name || '').trim().toLowerCase();
+        if (!normName) return;
+
+        if (nameMap[normName]) {
+            // Duplicate found! Add stock to existing product
+            const existing = nameMap[normName];
+            existing.stock = Number(existing.stock || 0) + Number(p.stock || 0);
+
+            // Update prices if duplicate has higher/newer price
+            if (Number(p.mrp || 0) > Number(existing.mrp || 0)) existing.mrp = p.mrp;
+            if (Number(p.salePrice || 0) > Number(existing.salePrice || 0)) existing.salePrice = p.salePrice;
+            if (!existing.hsn && p.hsn) existing.hsn = p.hsn;
+            if (!existing.batch && p.batch) existing.batch = p.batch;
+            if (!existing.expiry && p.expiry) existing.expiry = p.expiry;
+
+            mergedCount++;
+        } else {
+            // First occurrence: store copy
+            const copy = { ...p, stock: Number(p.stock || 0) };
+            nameMap[normName] = copy;
+            deduplicatedProducts.push(copy);
+        }
+    });
+
+    if (mergedCount === 0) {
+        alert('No duplicate products found.');
+        return;
+    }
+
+    products = deduplicatedProducts;
+    localStorage.setItem('mediflow_products', JSON.stringify(products));
+    syncToCloud('products', products);
+
+    if (typeof renderProducts === 'function') renderProducts();
+    if (typeof renderProductDropdown === 'function') renderProductDropdown();
+
+    alert(`Successfully merged ${mergedCount} duplicate product entry(s)!\n\n- Original Total Items: ${initialCount}\n- New Clean Items: ${products.length}`);
+}
+
+function handleProductImportFile(file) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const content = e.target.result;
+            let importedItems = [];
+
+            if (file.name.endsWith('.json')) {
+                const parsed = JSON.parse(content);
+                if (Array.isArray(parsed)) {
+                    importedItems = parsed;
+                } else if (parsed.data && Array.isArray(parsed.data.mediflow_products)) {
+                    importedItems = parsed.data.mediflow_products;
+                } else if (parsed.products && Array.isArray(parsed.products)) {
+                    importedItems = parsed.products;
+                }
+            } else if (file.name.endsWith('.csv')) {
+                importedItems = parseProductsCSV(content);
+            }
+
+            if (!importedItems || importedItems.length === 0) {
+                alert('No valid product data found in the selected file.');
+                return;
+            }
+
+            let updatedExistingCount = 0;
+            let addedNewCount = 0;
+
+            importedItems.forEach(item => {
+                const name = (item.name || item.Name || item.product_name || '').trim();
+                if (!name) return;
+
+                const normName = name.toLowerCase();
+                const existing = products.find(p => (p.name || '').trim().toLowerCase() === normName || (item.id && p.id === item.id));
+
+                const impQty = Number(item.stock !== undefined ? item.stock : (item.Quantity || item.qty || item.quantity || 0));
+                const impMrp = Number(item.mrp !== undefined ? item.mrp : (item.MRP || item.price || 0));
+                const impSalePrice = Number(item.salePrice !== undefined ? item.salePrice : (item.SalePrice || item.sale_price || item.mrp || 0));
+                const impCategory = item.category || item.Category || 'Other';
+                const impUnit = item.unit || item.Unit || 'Pcs';
+                const impHsn = item.hsn || item.HSN || '';
+                const impBatch = item.batch || item.Batch || '';
+                const impExpiry = item.expiry || item.Expiry || '';
+                const impGst = Number(item.gst !== undefined ? item.gst : (item.GST || 12));
+
+                if (existing) {
+                    // Update existing: ADD quantity to current stock
+                    existing.stock = Number(existing.stock || 0) + impQty;
+                    if (impMrp > 0) existing.mrp = impMrp;
+                    if (impSalePrice > 0) existing.salePrice = impSalePrice;
+                    if (impHsn) existing.hsn = impHsn;
+                    if (impBatch) existing.batch = impBatch;
+                    if (impExpiry) existing.expiry = impExpiry;
+                    updatedExistingCount++;
+                } else {
+                    // Add new product
+                    const newId = item.id || ('P' + String(products.length + 1).padStart(2, '0'));
+                    products.push({
+                        id: newId,
+                        name: name,
+                        category: impCategory,
+                        unit: impUnit,
+                        hsn: impHsn,
+                        batch: impBatch,
+                        expiry: impExpiry,
+                        mrp: impMrp,
+                        salePrice: impSalePrice,
+                        stock: impQty,
+                        gst: impGst
+                    });
+                    addedNewCount++;
+                }
+            });
+
+            localStorage.setItem('mediflow_products', JSON.stringify(products));
+            syncToCloud('products', products);
+
+            if (typeof renderProducts === 'function') renderProducts();
+            if (typeof renderProductDropdown === 'function') renderProductDropdown();
+
+            alert(`Product Import Complete!\n\n- Updated Existing Products (Added Stock): ${updatedExistingCount}\n- New Products Added: ${addedNewCount}\n- Total Active Inventory: ${products.length} items`);
+        } catch (err) {
+            console.error(err);
+            alert('Failed to import file. Please check file format and try again.');
+        }
+    };
+
+    reader.readAsText(file);
+}
+
+function parseProductsCSV(csvText) {
+    const lines = csvText.split(/\r\n|\n/).filter(line => line.trim() !== '');
+    if (lines.length <= 1) return [];
+
+    const headers = lines[0].split(',').map(h => h.trim().replace(/^["']|["']$/g, '').toLowerCase());
+    const items = [];
+
+    for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(',').map(v => v.trim().replace(/^["']|["']$/g, ''));
+        if (values.length < 1 || !values[0]) continue;
+
+        const rowObj = {};
+        headers.forEach((h, idx) => {
+            rowObj[h] = values[idx] || '';
+        });
+
+        items.push({
+            name: rowObj['name'] || rowObj['product name'] || rowObj['item'] || values[0],
+            category: rowObj['category'] || values[1] || 'Other',
+            unit: rowObj['unit'] || values[2] || 'Pcs',
+            hsn: rowObj['hsn'] || values[3] || '',
+            batch: rowObj['batch'] || values[4] || '',
+            expiry: rowObj['expiry'] || values[5] || '',
+            mrp: Number(rowObj['mrp'] || values[6] || 0),
+            salePrice: Number(rowObj['saleprice'] || rowObj['sale price'] || values[7] || rowObj['mrp'] || 0),
+            stock: Number(rowObj['stock'] || rowObj['qty'] || values[8] || 0),
+            gst: Number(rowObj['gst'] || values[9] || 12)
+        });
+    }
+
+    return items;
+}
+
+window.removeDuplicateProducts = removeDuplicateProducts;
+window.handleProductImportFile = handleProductImportFile;
+window.parseProductsCSV = parseProductsCSV;
+
+// --- Product Barcode Label Printing Module ---
+
+function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+window.escapeHtml = escapeHtml;
+
+let selectedBarcodeProductId = null;
+
+function renderBarcodeProductOptions() {
+    const select = document.getElementById('lbl-product-select');
+    if (!select) return;
+
+    const currentVal = select.value;
+    select.innerHTML = '<option value="">Select a Product...</option>';
+
+    if (!products || products.length === 0) return;
+
+    const sorted = [...products].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    sorted.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = `${p.name} | Stock: ${p.stock || 0} | ₹${p.salePrice || p.mrp || 0}`;
+        if (p.id === currentVal) opt.selected = true;
+        select.appendChild(opt);
+    });
+
+    if (settings && settings.printerName && document.getElementById('lbl-printer-path')) {
+        if (!document.getElementById('lbl-printer-path').value) {
+            document.getElementById('lbl-printer-path').value = settings.printerName || '';
+        }
+    }
+}
+
+function onBarcodeProductSelect() {
+    const select = document.getElementById('lbl-product-select');
+    if (!select) return;
+
+    selectedBarcodeProductId = select.value;
+    const prod = products.find(p => p.id === selectedBarcodeProductId);
+    if (prod && prod.stock > 0) {
+        document.getElementById('lbl-quantity').value = Math.min(Math.max(1, prod.stock), 100);
+    }
+    renderBarcodeLabelsPreview();
+}
+
+function useCurrentProductStockQty() {
+    const select = document.getElementById('lbl-product-select');
+    if (!select || !select.value) {
+        alert('Please select a product first.');
+        return;
+    }
+    const prod = products.find(p => p.id === select.value);
+    if (prod) {
+        document.getElementById('lbl-quantity').value = Math.max(1, Number(prod.stock || 1));
+        renderBarcodeLabelsPreview();
+    }
+}
+
+function renderBarcodeLabelsPreview() {
+    const container = document.getElementById('barcode-stickers-container');
+    const countSpan = document.getElementById('lbl-preview-count');
+    if (!container) return;
+
+    const productId = document.getElementById('lbl-product-select')?.value;
+    const prod = products.find(p => p.id === productId);
+
+    if (!prod) {
+        container.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 3rem;">Please select a product from the left menu to preview barcode stickers.</div>';
+        if (countSpan) countSpan.textContent = '0 Stickers';
+        return;
+    }
+
+    const qty = Math.min(Math.max(1, Number(document.getElementById('lbl-quantity')?.value || 1)), 500);
+    const size = document.getElementById('lbl-size')?.value || '50x25';
+    const showLogo = document.getElementById('lbl-show-logo')?.checked !== false;
+    const showShop = document.getElementById('lbl-show-shop')?.checked !== false;
+    const showName = document.getElementById('lbl-show-name')?.checked !== false;
+    const showPrice = document.getElementById('lbl-show-price')?.checked !== false;
+    const showExpiry = document.getElementById('lbl-show-expiry')?.checked !== false;
+    const showBarcode = document.getElementById('lbl-show-barcode')?.checked !== false;
+    const shopName = settings.shopName || 'T7 BillPro';
+    const shopLogo = settings.shopLogo || '';
+
+    if (countSpan) countSpan.textContent = `${qty} Sticker(s) Preview (${size})`;
+
+    let stickersHtml = '';
+    const codeVal = prod.id || ('PROD-' + prod.name.replace(/\s+/g, '').toUpperCase());
+    const barSvg = generateCode128Svg(codeVal);
+
+    for (let i = 0; i < Math.min(qty, 36); i++) {
+        stickersHtml += `
+            <div class="barcode-sticker-card" style="width: 220px; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px; text-align: center; font-family: sans-serif; box-shadow: 0 1px 3px rgba(0,0,0,0.1); color: #000;">
+                ${(showLogo && shopLogo) ? `<div style="text-align: center; margin-bottom: 2px;"><img src="${shopLogo}" style="max-height: 18px; max-width: 60px; object-fit: contain;"></div>` : ''}
+                ${showShop ? `<div style="font-size: 0.7rem; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: #475569; margin-bottom: 2px;">${escapeHtml(shopName)}</div>` : ''}
+                ${showName ? `<div style="font-size: 0.85rem; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 3px;">${escapeHtml(prod.name)}</div>` : ''}
+                
+                ${showPrice ? `
+                    <div style="font-size: 0.8rem; font-weight: 700; margin-bottom: 3px;">
+                        Sale: ₹${prod.salePrice || prod.mrp || 0} ${prod.mrp ? `<span style="font-weight: normal; text-decoration: line-through; color: #64748b; font-size: 0.72rem;">MRP: ₹${prod.mrp}</span>` : ''}
+                    </div>
+                ` : ''}
+
+                ${showExpiry && (prod.batch || prod.expiry) ? `
+                    <div style="font-size: 0.68rem; color: #334155; margin-bottom: 3px;">
+                        ${prod.batch ? `B.No: ${escapeHtml(prod.batch)}` : ''} ${prod.expiry ? `Exp: ${escapeHtml(prod.expiry)}` : ''}
+                    </div>
+                ` : ''}
+
+                ${showBarcode ? `
+                    <div style="margin: 4px 0 2px 0;">
+                        ${barSvg}
+                        <div style="font-size: 0.65rem; font-family: monospace; letter-spacing: 1px; color: #000; font-weight: bold;">*${escapeHtml(codeVal)}*</div>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }
+
+    if (qty > 36) {
+        stickersHtml += `<div style="width: 100%; text-align: center; font-size: 0.8rem; color: var(--text-muted); padding: 8px;">... and ${qty - 36} more stickers ready for printing.</div>`;
+    }
+
+    container.innerHTML = stickersHtml;
+}
+
+function generateCode128Svg(text) {
+    let barsHtml = '';
+    let x = 10;
+    
+    for (let i = 0; i < text.length; i++) {
+        const charCode = text.charCodeAt(i);
+        const w1 = (charCode % 3) + 1;
+        const w2 = ((charCode * 2) % 3) + 1;
+        
+        barsHtml += `<rect x="${x}" y="0" width="${w1}" height="28" fill="#000" />`;
+        x += w1 + w2;
+    }
+    
+    barsHtml += `<rect x="${x}" y="0" width="3" height="28" fill="#000" />`;
+    x += 5;
+
+    return `<svg width="100%" height="28" viewBox="0 0 ${Math.max(x, 140)} 28" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">${barsHtml}</svg>`;
+}
+
+function printBarcodeLabels() {
+    const productId = document.getElementById('lbl-product-select')?.value;
+    const prod = products.find(p => p.id === productId);
+
+    if (!prod) {
+        alert('Please select a product to print barcode labels.');
+        return;
+    }
+
+    const qty = Math.max(1, Number(document.getElementById('lbl-quantity')?.value || 1));
+    const size = document.getElementById('lbl-size')?.value || '50x25';
+    const printerPath = document.getElementById('lbl-printer-path')?.value || settings.printerName || 'Default System Printer';
+    const showLogo = document.getElementById('lbl-show-logo')?.checked !== false;
+    const showShop = document.getElementById('lbl-show-shop')?.checked !== false;
+    const showName = document.getElementById('lbl-show-name')?.checked !== false;
+    const showPrice = document.getElementById('lbl-show-price')?.checked !== false;
+    const showExpiry = document.getElementById('lbl-show-expiry')?.checked !== false;
+    const showBarcode = document.getElementById('lbl-show-barcode')?.checked !== false;
+    const shopName = settings.shopName || 'T7 BillPro';
+    const shopLogo = settings.shopLogo || '';
+    const codeVal = prod.id || ('PROD-' + prod.name.replace(/\s+/g, '').toUpperCase());
+    const barSvg = generateCode128Svg(codeVal);
+
+    const printWin = window.open('', '_blank');
+    if (!printWin) {
+        alert('Please allow popups to print barcode labels.');
+        return;
+    }
+
+    let stickerWidth = '33mm';
+    let stickerHeight = '33.5mm';
+    let pageSize = '102mm 34mm';
+    let containerCss = 'display: grid; grid-template-columns: repeat(3, 33mm); column-gap: 1.5mm; row-gap: 1.5mm; width: 102mm; margin: 0 auto;';
+
+    if (size === '33x34_3up') {
+        stickerWidth = '33mm';
+        stickerHeight = '33.5mm';
+        pageSize = '102mm 34mm';
+        containerCss = 'display: grid; grid-template-columns: repeat(3, 33mm); column-gap: 1.5mm; row-gap: 1.5mm; width: 102mm; margin: 0 auto;';
+    } else if (size === '102x34') {
+        stickerWidth = '100mm';
+        stickerHeight = '33.5mm';
+        pageSize = '102mm 34mm';
+        containerCss = 'display: flex; flex-direction: column; gap: 2mm; width: 102mm; margin: 0 auto;';
+    } else if (size === '38x25') {
+        stickerWidth = '36mm';
+        stickerHeight = '23mm';
+        pageSize = 'auto';
+        containerCss = 'display: flex; flex-wrap: wrap; gap: 2mm; justify-content: flex-start;';
+    } else if (size === '40x30') {
+        stickerWidth = '38mm';
+        stickerHeight = '28mm';
+        pageSize = 'auto';
+        containerCss = 'display: flex; flex-wrap: wrap; gap: 2mm; justify-content: flex-start;';
+    } else if (size === '3inch') {
+        stickerWidth = '76mm';
+        stickerHeight = '30mm';
+        pageSize = '80mm auto';
+        containerCss = 'display: flex; flex-direction: column; gap: 2mm; width: 78mm; margin: 0 auto;';
+    } else {
+        stickerWidth = '48mm';
+        stickerHeight = '23mm';
+        pageSize = 'auto';
+        containerCss = 'display: flex; flex-wrap: wrap; gap: 2mm; justify-content: flex-start;';
+    }
+
+    let stickersHtml = '';
+    for (let i = 0; i < qty; i++) {
+        stickersHtml += `
+            <div class="sticker-box">
+                ${(showLogo && shopLogo) ? `<div style="text-align: center; margin-bottom: 1px;"><img src="${shopLogo}" style="max-height: 14px; max-width: 50px; object-fit: contain;"></div>` : ''}
+                ${showShop ? `<div class="shop-title">${escapeHtml(shopName)}</div>` : ''}
+                ${showName ? `<div class="prod-title">${escapeHtml(prod.name)}</div>` : ''}
+                ${showPrice ? `<div class="price-line">Price: <strong>₹${prod.salePrice || prod.mrp || 0}</strong> ${prod.mrp ? `<span class="mrp">MRP: ₹${prod.mrp}</span>` : ''}</div>` : ''}
+                ${showExpiry && (prod.batch || prod.expiry) ? `<div class="exp-line">${prod.batch ? `B:${escapeHtml(prod.batch)}` : ''} ${prod.expiry ? `E:${escapeHtml(prod.expiry)}` : ''}</div>` : ''}
+                ${showBarcode ? `
+                    <div class="barcode-wrapper">
+                        ${barSvg}
+                        <div class="code-str">*${escapeHtml(codeVal)}*</div>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }
+
+    printWin.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Barcode Labels - ${escapeHtml(prod.name)} (${qty} Stickers)</title>
+            <style>
+                @page { margin: 1mm; size: ${pageSize}; }
+                body { font-family: 'Inter', system-ui, sans-serif; margin: 0; padding: 2mm; color: #000; background: #fff; }
+                .printer-info { font-size: 0.75rem; color: #64748b; margin-bottom: 8px; border-bottom: 1px dashed #cbd5e1; padding-bottom: 4px; }
+                .stickers-wrapper { ${containerCss} }
+                .sticker-box {
+                    width: ${stickerWidth};
+                    height: ${stickerHeight};
+                    box-sizing: border-box;
+                    border: 1px solid #94a3b8;
+                    border-radius: 4px;
+                    padding: 2mm;
+                    text-align: center;
+                    overflow: hidden;
+                    page-break-inside: avoid;
+                    background: #fff;
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: center;
+                    align-items: center;
+                }
+                .shop-title { font-size: 6.5pt; font-weight: bold; text-transform: uppercase; line-height: 1.1; color: #334155; }
+                .prod-title { font-size: 7.5pt; font-weight: bold; line-height: 1.1; max-height: 2.2em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; }
+                .price-line { font-size: 7pt; margin-top: 1px; }
+                .price-line .mrp { font-size: 6pt; text-decoration: line-through; color: #64748b; }
+                .exp-line { font-size: 6pt; color: #334155; }
+                .barcode-wrapper { width: 100%; margin-top: 2px; text-align: center; }
+                .code-str { font-size: 5.5pt; font-family: monospace; font-weight: bold; }
+                @media print {
+                    .printer-info { display: none; }
+                    .sticker-box { border: 1px solid #cbd5e1; }
+                }
+            </style>
+        </head>
+        <body onload="window.print(); window.close();">
+            <div class="printer-info">
+                Target Label Printer: <strong>${escapeHtml(printerPath)}</strong> | Size: ${size} | Total Stickers: ${qty}
+            </div>
+            <div class="stickers-wrapper">
+                ${stickersHtml}
+            </div>
+        </body>
+        </html>
+    `);
+    printWin.document.close();
+}
+
+window.renderBarcodeProductOptions = renderBarcodeProductOptions;
+window.onBarcodeProductSelect = onBarcodeProductSelect;
+window.useCurrentProductStockQty = useCurrentProductStockQty;
+window.renderBarcodeLabelsPreview = renderBarcodeLabelsPreview;
+window.generateCode128Svg = generateCode128Svg;
+window.printBarcodeLabels = printBarcodeLabels;
+
+// --- Waiter & Doctor Billing Options & Sales Reports ---
+
+function renderBillingWaiterOptions() {
+    const select = document.getElementById('billing-waiter-select');
+    if (!select) return;
+
+    const currentVal = select.value;
+    select.innerHTML = '<option value="">Select Waiter / Staff (Optional)</option>';
+
+    const activeStaff = (staffList || []).filter(s => 
+        (s.status || 'Active').toLowerCase() === 'active' && 
+        (!s.branchId || s.branchId === currentBranchId)
+    );
+    activeStaff.forEach(stf => {
+        const opt = document.createElement('option');
+        opt.value = stf.name;
+        opt.textContent = `${stf.name} (${stf.role || 'Staff'})`;
+        if (stf.name === currentVal) opt.selected = true;
+        select.appendChild(opt);
+    });
+}
+
+function renderBillingDoctorOptions() {
+    const datalist = document.getElementById('doctor-suggestions-list');
+    if (!datalist) return;
+
+    datalist.innerHTML = '';
+    const doctorSet = new Set();
+
+    (sales || []).forEach(s => {
+        if (s.doctorName && s.doctorName.trim()) {
+            doctorSet.add(s.doctorName.trim());
+        }
+    });
+
+    doctorSet.forEach(docName => {
+        const opt = document.createElement('option');
+        opt.value = docName;
+        datalist.appendChild(opt);
+    });
+}
+
+function generateReport() {
+    const reportType = document.getElementById('report-type')?.value || 'stock';
+    const startDateVal = document.getElementById('report-start')?.value;
+    const endDateVal = document.getElementById('report-end')?.value;
+
+    const tableTitle = document.getElementById('report-table-title');
+    const tableHead = document.getElementById('report-table-head');
+    const tableBody = document.querySelector('#report-table tbody');
+
+    if (!tableHead || !tableBody) return;
+
+    let filteredSales = [...(sales || [])];
+    if (startDateVal) {
+        filteredSales = filteredSales.filter(s => s.date && new Date(s.date) >= new Date(startDateVal));
+    }
+    if (endDateVal) {
+        const end = new Date(endDateVal);
+        end.setHours(23, 59, 59, 999);
+        filteredSales = filteredSales.filter(s => s.date && new Date(s.date) <= end);
+    }
+
+    if (reportType === 'waiter_sales' || reportType === 'waiter-sales') {
+        if (tableTitle) tableTitle.textContent = 'Waiter-wise Sales Report';
+        
+        const waiterMap = {};
+        filteredSales.forEach(sale => {
+            const waiter = sale.waiterName || 'Unassigned / Counter';
+            if (!waiterMap[waiter]) {
+                waiterMap[waiter] = { waiterName: waiter, ordersCount: 0, itemsCount: 0, totalRevenue: 0 };
+            }
+            waiterMap[waiter].ordersCount += 1;
+            waiterMap[waiter].itemsCount += (sale.items ? sale.items.reduce((sum, i) => sum + Math.abs(i.qty || 1), 0) : 0);
+            waiterMap[waiter].totalRevenue += Number(sale.grandTotal || 0);
+        });
+
+        tableHead.innerHTML = `
+            <tr>
+                <th>Waiter / Staff Name</th>
+                <th style="text-align: center;">Total Bills</th>
+                <th style="text-align: center;">Total Items Sold</th>
+                <th style="text-align: right;">Total Revenue (${settings.currency || '₹'})</th>
+            </tr>
+        `;
+
+        const summaryList = Object.values(waiterMap).sort((a, b) => b.totalRevenue - a.totalRevenue);
+        if (summaryList.length === 0) {
+            tableBody.innerHTML = `<tr><td colspan="4" style="text-align: center; padding: 20px;">No waiter sales recorded in selected date range.</td></tr>`;
+        } else {
+            let grandOrders = 0, grandItems = 0, grandRev = 0;
+            tableBody.innerHTML = summaryList.map(w => {
+                grandOrders += w.ordersCount;
+                grandItems += w.itemsCount;
+                grandRev += w.totalRevenue;
+                return `
+                    <tr>
+                        <td><strong>${escapeHtml(w.waiterName)}</strong></td>
+                        <td style="text-align: center;">${w.ordersCount}</td>
+                        <td style="text-align: center;">${w.itemsCount}</td>
+                        <td style="text-align: right; font-weight: bold; color: var(--success-color);">${settings.currency || '₹'}${w.totalRevenue.toFixed(2)}</td>
+                    </tr>
+                `;
+            }).join('') + `
+                <tr style="background: var(--primary-light); font-weight: bold;">
+                    <td>TOTAL OVERALL SUMMARY</td>
+                    <td style="text-align: center;">${grandOrders}</td>
+                    <td style="text-align: center;">${grandItems}</td>
+                    <td style="text-align: right; color: var(--primary-color);">${settings.currency || '₹'}${grandRev.toFixed(2)}</td>
+                </tr>
+            `;
+        }
+        return;
+    }
+
+    if (reportType === 'doctor_sales' || reportType === 'doctor-sales') {
+        if (tableTitle) tableTitle.textContent = 'Doctor-wise Sales Report';
+
+        const doctorMap = {};
+        filteredSales.forEach(sale => {
+            const doctor = sale.doctorName || 'Self / Direct Sale';
+            if (!doctorMap[doctor]) {
+                doctorMap[doctor] = { doctorName: doctor, prescriptionCount: 0, totalRevenue: 0 };
+            }
+            doctorMap[doctor].prescriptionCount += 1;
+            doctorMap[doctor].totalRevenue += Number(sale.grandTotal || 0);
+        });
+
+        tableHead.innerHTML = `
+            <tr>
+                <th>Doctor / Prescriber Name</th>
+                <th style="text-align: center;">Prescription Bills</th>
+                <th style="text-align: right;">Total Sales Revenue (${settings.currency || '₹'})</th>
+            </tr>
+        `;
+
+        const summaryList = Object.values(doctorMap).sort((a, b) => b.totalRevenue - a.totalRevenue);
+        if (summaryList.length === 0) {
+            tableBody.innerHTML = `<tr><td colspan="3" style="text-align: center; padding: 20px;">No doctor sales recorded in selected date range.</td></tr>`;
+        } else {
+            let grandRx = 0, grandRev = 0;
+            tableBody.innerHTML = summaryList.map(d => {
+                grandRx += d.prescriptionCount;
+                grandRev += d.totalRevenue;
+                return `
+                    <tr>
+                        <td><strong>${escapeHtml(d.doctorName)}</strong></td>
+                        <td style="text-align: center;">${d.prescriptionCount}</td>
+                        <td style="text-align: right; font-weight: bold; color: var(--success-color);">${settings.currency || '₹'}${d.totalRevenue.toFixed(2)}</td>
+                    </tr>
+                `;
+            }).join('') + `
+                <tr style="background: var(--primary-light); font-weight: bold;">
+                    <td>TOTAL OVERALL SUMMARY</td>
+                    <td style="text-align: center;">${grandRx}</td>
+                    <td style="text-align: right; color: var(--primary-color);">${settings.currency || '₹'}${grandRev.toFixed(2)}</td>
+                </tr>
+            `;
+        }
+        return;
+    }
+
+    if (reportType === 'table_sales' || reportType === 'table-sales') {
+        if (tableTitle) tableTitle.textContent = 'Table-wise Sales Report';
+
+        const tableMap = {};
+        filteredSales.filter(s => !s.isReturn).forEach(sale => {
+            const tbl = sale.tableName || 'Takeaway / Counter';
+            if (!tableMap[tbl]) {
+                tableMap[tbl] = { tableName: tbl, billsCount: 0, itemsCount: 0, totalRevenue: 0 };
+            }
+            tableMap[tbl].billsCount += 1;
+            tableMap[tbl].itemsCount += (sale.items ? sale.items.reduce((sum, i) => sum + Math.abs(i.qty || 1), 0) : 0);
+            tableMap[tbl].totalRevenue += Number(sale.grandTotal || 0);
+        });
+
+        tableHead.innerHTML = `
+            <tr>
+                <th>Table / Zone</th>
+                <th style="text-align: center;">Total Bills</th>
+                <th style="text-align: center;">Total Items Sold</th>
+                <th style="text-align: right;">Total Revenue (${settings.currency || '₹'})</th>
+            </tr>
+        `;
+
+        const summaryList = Object.values(tableMap).sort((a, b) => b.totalRevenue - a.totalRevenue);
+        if (summaryList.length === 0) {
+            tableBody.innerHTML = `<tr><td colspan="4" style="text-align: center; padding: 20px;">No table sales recorded in selected date range. Enable Table Management in Settings to start tracking.</td></tr>`;
+        } else {
+            let grandBills = 0, grandItems = 0, grandRev = 0;
+            tableBody.innerHTML = summaryList.map(t => {
+                grandBills += t.billsCount;
+                grandItems += t.itemsCount;
+                grandRev += t.totalRevenue;
+                return `
+                    <tr>
+                        <td><strong>${escapeHtml(t.tableName)}</strong></td>
+                        <td style="text-align: center;">${t.billsCount}</td>
+                        <td style="text-align: center;">${t.itemsCount}</td>
+                        <td style="text-align: right; font-weight: bold; color: var(--success-color);">${settings.currency || '₹'}${t.totalRevenue.toFixed(2)}</td>
+                    </tr>
+                `;
+            }).join('') + `
+                <tr style="background: var(--primary-light); font-weight: bold;">
+                    <td>TOTAL OVERALL SUMMARY</td>
+                    <td style="text-align: center;">${grandBills}</td>
+                    <td style="text-align: center;">${grandItems}</td>
+                    <td style="text-align: right; color: var(--primary-color);">${settings.currency || '₹'}${grandRev.toFixed(2)}</td>
+                </tr>
+            `;
+        }
+        return;
+    }
+
+    if (reportType === 'stock') {
+        if (tableTitle) tableTitle.textContent = 'Stock Report';
+        tableHead.innerHTML = `
+            <tr>
+                <th>Product Name</th>
+                <th>Category</th>
+                <th>Batch</th>
+                <th>Expiry</th>
+                <th>Stock Qty</th>
+                <th>MRP</th>
+                <th>Sale Price</th>
+            </tr>
+        `;
+        tableBody.innerHTML = (products || []).map(p => `
+            <tr>
+                <td><strong>${escapeHtml(p.name)}</strong></td>
+                <td>${escapeHtml(p.category || 'General')}</td>
+                <td>${escapeHtml(p.batch || '---')}</td>
+                <td>${escapeHtml(p.expiry || '---')}</td>
+                <td>${p.stock || 0}</td>
+                <td>${settings.currency || '₹'}${parseFloat(p.mrp || 0).toFixed(2)}</td>
+                <td>${settings.currency || '₹'}${parseFloat(p.salePrice || 0).toFixed(2)}</td>
+            </tr>
+        `).join('');
+    } else if (reportType.startsWith('sales_')) {
+        const mode = reportType.replace('sales_', '');
+        let targetSales = filteredSales;
+        if (mode === 'cash') targetSales = filteredSales.filter(s => (s.paymentMode || 'Cash') === 'Cash');
+        if (mode === 'gpay') targetSales = filteredSales.filter(s => (s.paymentMode || '').toLowerCase().includes('gpay') || (s.paymentMode || '').toLowerCase().includes('upi'));
+        if (mode === 'credit') targetSales = filteredSales.filter(s => s.paymentMode === 'Credit');
+
+        if (tableTitle) tableTitle.textContent = `${mode.toUpperCase()} Sales Report`;
+        tableHead.innerHTML = `
+            <tr>
+                <th>Invoice #</th>
+                <th>Date</th>
+                <th>Customer Name</th>
+                <th>Phone</th>
+                <th>Payment Mode</th>
+                <th style="text-align: right;">Amount (${settings.currency || '₹'})</th>
+            </tr>
+        `;
+        let totalAmt = 0;
+        tableBody.innerHTML = targetSales.map(s => {
+            const amt = Number(s.grandTotal || 0);
+            totalAmt += amt;
+            return `
+                <tr>
+                    <td>#${escapeHtml(s.invoiceNo || '---')}</td>
+                    <td>${s.date ? new Date(s.date).toLocaleString() : '---'}</td>
+                    <td>${escapeHtml(s.customer ? s.customer.name : 'Cash Customer')}</td>
+                    <td>${escapeHtml(s.customer ? s.customer.phone : '---')}</td>
+                    <td><span class="badge">${s.paymentMode || 'Cash'}</span></td>
+                    <td style="text-align: right; font-weight: bold;">${settings.currency || '₹'}${amt.toFixed(2)}</td>
+                </tr>
+            `;
+        }).join('') + `
+            <tr style="background: var(--primary-light); font-weight: bold;">
+                <td colspan="5">TOTAL SALES AMOUNT</td>
+                <td style="text-align: right; color: var(--primary-color);">${settings.currency || '₹'}${totalAmt.toFixed(2)}</td>
+            </tr>
+        `;
+    } else if (reportType === 'purchases') {
+        if (tableTitle) tableTitle.textContent = 'Purchases Report';
+        tableHead.innerHTML = `
+            <tr>
+                <th>Date</th>
+                <th>Product Name</th>
+                <th>Supplier</th>
+                <th>Invoice</th>
+                <th>Qty</th>
+                <th style="text-align: right;">Total (${settings.currency || '₹'})</th>
+            </tr>
+        `;
+        tableBody.innerHTML = (purchases || []).map(p => `
+            <tr>
+                <td>${p.date || '---'}</td>
+                <td>${escapeHtml(p.productName || '---')}</td>
+                <td>${escapeHtml(p.supplier || '---')}</td>
+                <td>${escapeHtml(p.invoice || '---')}</td>
+                <td>${p.qty || 0}</td>
+                <td style="text-align: right;">${settings.currency || '₹'}${parseFloat(p.total || 0).toFixed(2)}</td>
+            </tr>
+        `).join('');
+    } else if (reportType === 'expenses') {
+        if (tableTitle) tableTitle.textContent = 'Expenses Report';
+        tableHead.innerHTML = `
+            <tr>
+                <th>Date</th>
+                <th>Category</th>
+                <th>Description</th>
+                <th style="text-align: right;">Amount (${settings.currency || '₹'})</th>
+            </tr>
+        `;
+        tableBody.innerHTML = (expenses || []).map(e => `
+            <tr>
+                <td>${e.date || '---'}</td>
+                <td>${escapeHtml(e.category || '---')}</td>
+                <td>${escapeHtml(e.description || '---')}</td>
+                <td style="text-align: right;">${settings.currency || '₹'}${parseFloat(e.amount || 0).toFixed(2)}</td>
+            </tr>
+        `).join('');
+    }
+}
+
+function exportReportToCSV() {
+    const table = document.getElementById('report-table');
+    if (!table) return;
+
+    let csv = [];
+    const rows = table.querySelectorAll('tr');
+    rows.forEach(row => {
+        const cols = row.querySelectorAll('th, td');
+        const rowData = [];
+        cols.forEach(col => rowData.push('"' + col.innerText.replace(/"/g, '""') + '"'));
+        csv.push(rowData.join(','));
+    });
+
+    const reportType = document.getElementById('report-type')?.value || 'report';
+    downloadBlob(csv.join('\n'), `Report_${reportType}_${new Date().toISOString().split('T')[0]}.csv`, 'text/csv');
+}
+
+window.renderBillingWaiterOptions = renderBillingWaiterOptions;
+window.renderBillingDoctorOptions = renderBillingDoctorOptions;
+window.generateReport = generateReport;
+window.exportReportToCSV = exportReportToCSV;
+
+// --- Super Admin Branch Settings Permissions Module ---
+
+let branchSettingsPermissions = JSON.parse(localStorage.getItem('mediflow_branch_settings_permissions')) || {};
+
+function getDefaultBranchPermissions() {
+    return {
+        editShop: true,
+        editPrinter: true,
+        editGst: true,
+        editKot: true,
+        editTableMgmt: true,
+        editWaiter: true,
+        editDoctor: true,
+        manageCategories: true,
+        manageExpCategories: true
+    };
+}
+
+function getBranchPermissions(branchId) {
+    const targetBranch = branchId || currentBranchId || 'main';
+    return branchSettingsPermissions[targetBranch] || getDefaultBranchPermissions();
+}
+
+function renderSuperAdminSettingsPermissions() {
+    const permPanel = document.getElementById('super-admin-settings-permissions');
+    if (!permPanel) return;
+
+    const loggedInUser = sessionStorage.getItem('mediflow_user');
+    const isSuperAdmin = !loggedInUser || loggedInUser === 'VIKI' || (loggedInUser && loggedInUser.toLowerCase() === 'viki');
+
+    if (!isSuperAdmin) {
+        permPanel.style.display = 'none';
+        return;
+    }
+
+    permPanel.style.display = 'block';
+
+    const branchSelect = document.getElementById('perm-target-branch');
+    if (branchSelect) {
+        const currentVal = branchSelect.value;
+        branchSelect.innerHTML = '';
+        (branches || []).forEach(b => {
+            const opt = document.createElement('option');
+            opt.value = b.id;
+            opt.textContent = `${b.name} (${b.id})`;
+            if (b.id === currentVal) opt.selected = true;
+            branchSelect.appendChild(opt);
+        });
+
+        if (!branchSelect.value && branches && branches.length > 0) {
+            branchSelect.value = branches[0].id;
+        }
+    }
+
+    onPermBranchSelectChange();
+}
+
+function onPermBranchSelectChange() {
+    const branchSelect = document.getElementById('perm-target-branch');
+    if (!branchSelect) return;
+
+    const branchId = branchSelect.value || currentBranchId || 'main';
+    const perms = getBranchPermissions(branchId);
+
+    if (document.getElementById('perm-edit-shop')) document.getElementById('perm-edit-shop').checked = perms.editShop !== false;
+    if (document.getElementById('perm-edit-printer')) document.getElementById('perm-edit-printer').checked = perms.editPrinter !== false;
+    if (document.getElementById('perm-edit-gst')) document.getElementById('perm-edit-gst').checked = (perms.editGst !== undefined ? perms.editGst : perms.editGstKot) !== false;
+    if (document.getElementById('perm-edit-kot')) document.getElementById('perm-edit-kot').checked = (perms.editKot !== undefined ? perms.editKot : perms.editGstKot) !== false;
+    if (document.getElementById('perm-edit-table-mgmt')) document.getElementById('perm-edit-table-mgmt').checked = perms.editTableMgmt !== false;
+    if (document.getElementById('perm-edit-waiter')) document.getElementById('perm-edit-waiter').checked = (perms.editWaiter !== undefined ? perms.editWaiter : perms.editWaiterDoctor) !== false;
+    if (document.getElementById('perm-edit-doctor')) document.getElementById('perm-edit-doctor').checked = (perms.editDoctor !== undefined ? perms.editDoctor : perms.editWaiterDoctor) !== false;
+    if (document.getElementById('perm-manage-categories')) document.getElementById('perm-manage-categories').checked = perms.manageCategories !== false;
+    if (document.getElementById('perm-manage-exp-categories')) document.getElementById('perm-manage-exp-categories').checked = perms.manageExpCategories !== false;
+}
+
+function saveBranchSettingsPermissions() {
+    const branchSelect = document.getElementById('perm-target-branch');
+    if (!branchSelect) return;
+
+    const branchId = branchSelect.value;
+    if (!branchId) return;
+
+    branchSettingsPermissions[branchId] = {
+        editShop: document.getElementById('perm-edit-shop')?.checked !== false,
+        editPrinter: document.getElementById('perm-edit-printer')?.checked !== false,
+        editGst: document.getElementById('perm-edit-gst')?.checked !== false,
+        editKot: document.getElementById('perm-edit-kot')?.checked !== false,
+        editTableMgmt: document.getElementById('perm-edit-table-mgmt')?.checked !== false,
+        editWaiter: document.getElementById('perm-edit-waiter')?.checked !== false,
+        editDoctor: document.getElementById('perm-edit-doctor')?.checked !== false,
+        manageCategories: document.getElementById('perm-manage-categories')?.checked !== false,
+        manageExpCategories: document.getElementById('perm-manage-exp-categories')?.checked !== false
+    };
+
+    localStorage.setItem('mediflow_branch_settings_permissions', JSON.stringify(branchSettingsPermissions));
+    syncToCloud('branch_settings_permissions', branchSettingsPermissions);
+
+    alert(`Application Settings Permissions saved for Branch (${branchId}) successfully!`);
+    applyBranchSettingsPermissions();
+}
+
+function applyBranchSettingsPermissions() {
+    const loggedInUser = sessionStorage.getItem('mediflow_user');
+    const isSuperAdmin = !loggedInUser || loggedInUser === 'VIKI' || (loggedInUser && loggedInUser.toLowerCase() === 'viki');
+
+    if (isSuperAdmin) {
+        const inputs = document.querySelectorAll('#settings-form input, #settings-form select, #settings-form button');
+        inputs.forEach(el => el.disabled = false);
+        return;
+    }
+
+    const perms = getBranchPermissions(currentBranchId);
+
+    // Shop Details
+    ['set-shop-name', 'set-shop-address', 'set-shop-phone', 'set-shop-gstin', 'set-shop-logo', 'set-shop-upi'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = !perms.editShop;
+    });
+
+    // Printer Details
+    ['set-printer-type', 'set-printer-name', 'set-print-copies'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = !perms.editPrinter;
+    });
+
+    // GST System
+    if (document.getElementById('set-gst-default')) {
+        const gstAllowed = perms.editGst !== undefined ? perms.editGst : perms.editGstKot;
+        document.getElementById('set-gst-default').disabled = !gstAllowed;
+    }
+
+    // KOT Printing System
+    if (document.getElementById('set-kot-enabled')) {
+        const kotAllowed = perms.editKot !== undefined ? perms.editKot : perms.editGstKot;
+        document.getElementById('set-kot-enabled').disabled = !kotAllowed;
+    }
+
+    // Table Management Toggle
+    if (document.getElementById('set-enable-table-mgmt')) {
+        document.getElementById('set-enable-table-mgmt').disabled = !perms.editTableMgmt;
+    }
+
+    // Waiter Selection Toggle
+    if (document.getElementById('set-enable-waiter')) {
+        const waiterAllowed = perms.editWaiter !== undefined ? perms.editWaiter : perms.editWaiterDoctor;
+        document.getElementById('set-enable-waiter').disabled = !waiterAllowed;
+    }
+
+    // Doctor Selection Toggle
+    if (document.getElementById('set-enable-doctor')) {
+        const doctorAllowed = perms.editDoctor !== undefined ? perms.editDoctor : perms.editWaiterDoctor;
+        document.getElementById('set-enable-doctor').disabled = !doctorAllowed;
+    }
+
+    // Categories
+    const newCatInput = document.getElementById('new-category-name');
+    if (newCatInput) newCatInput.disabled = !perms.manageCategories;
+    const newExpCatInput = document.getElementById('new-exp-category-name');
+    if (newExpCatInput) newExpCatInput.disabled = !perms.manageExpCategories;
+}
+
+window.renderSuperAdminSettingsPermissions = renderSuperAdminSettingsPermissions;
+window.onPermBranchSelectChange = onPermBranchSelectChange;
+window.saveBranchSettingsPermissions = saveBranchSettingsPermissions;
+window.applyBranchSettingsPermissions = applyBranchSettingsPermissions;
+
+// --- Return Bill Engine ---
+
+let activeReturnTargetSale = null;
+
+function openReturnBillModal(invNo) {
+    const modal = document.getElementById('return-bill-modal');
+    if (!modal) return;
+
+    activeReturnTargetSale = null;
+    const input = document.getElementById('return-bill-id-input');
+    const detailsContainer = document.getElementById('return-bill-details-container');
+
+    if (detailsContainer) detailsContainer.style.display = 'none';
+
+    if (input) {
+        input.value = invNo || '';
+    }
+
+    modal.style.display = 'flex';
+
+    if (invNo) {
+        lookupReturnBill();
+    }
+}
+
+function closeReturnBillModal() {
+    const modal = document.getElementById('return-bill-modal');
+    if (modal) modal.style.display = 'none';
+    activeReturnTargetSale = null;
+}
+
+function lookupReturnBill() {
+    const input = document.getElementById('return-bill-id-input');
+    if (!input) return;
+
+    const query = input.value.trim().toLowerCase();
+    if (!query) {
+        alert('Please enter a Bill ID or Invoice Number.');
+        return;
+    }
+
+    const cleanQuery = query.replace(/[^a-z0-9]/g, '');
+    const foundSale = (sales || []).find(s => {
+        if (!s) return false;
+        const inv = (s.invoiceNo || '').toLowerCase();
+        const cleanInv = inv.replace(/[^a-z0-9]/g, '');
+        const id = (s.id || '').toLowerCase();
+        return inv === query || (cleanQuery && cleanInv === cleanQuery) || (cleanQuery && cleanInv.includes(cleanQuery)) || id === query;
+    });
+
+    if (!foundSale) {
+        alert(`No bill found matching Invoice ID "${input.value}". Please check the Invoice Number.`);
+        return;
+    }
+
+    if (foundSale.isReturn) {
+        alert(`Bill #${foundSale.invoiceNo} is already a Return Invoice.`);
+        return;
+    }
+
+    activeReturnTargetSale = foundSale;
+
+    document.getElementById('return-bill-inv-no').textContent = foundSale.invoiceNo || foundSale.id;
+    document.getElementById('return-bill-customer').textContent = foundSale.customer ? foundSale.customer.name : 'Cash Customer';
+    document.getElementById('return-bill-date').textContent = foundSale.date ? new Date(foundSale.date).toLocaleDateString() : '---';
+    document.getElementById('return-bill-orig-total').textContent = `${settings.currency || '₹'}${Number(foundSale.grandTotal || 0).toFixed(2)}`;
+
+    const tbody = document.getElementById('return-items-tbody');
+    tbody.innerHTML = '';
+
+    (foundSale.items || []).forEach((item, index) => {
+        const tr = document.createElement('tr');
+        const unitPrice = Number(item.salePrice || item.mrp || item.price || 0);
+        const soldQty = Math.abs(item.quantity || item.qty || 1);
+
+        tr.innerHTML = `
+            <td><strong>${escapeHtml(item.name || item.productName || 'Item')}</strong></td>
+            <td style="text-align: center;">${settings.currency || '₹'}${unitPrice.toFixed(2)}</td>
+            <td style="text-align: center;"><strong>${soldQty}</strong></td>
+            <td style="text-align: center;">
+                <input type="number" class="form-control return-qty-input" data-index="${index}" data-price="${unitPrice}" data-max="${soldQty}" value="${soldQty}" min="0" max="${soldQty}" style="width: 80px; text-align: center; margin: 0 auto;" oninput="updateReturnTotals()">
+            </td>
+            <td style="text-align: right; font-weight: bold; color: var(--danger-color);" class="return-item-subtotal">${settings.currency || '₹'}${(unitPrice * soldQty).toFixed(2)}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    document.getElementById('return-bill-details-container').style.display = 'block';
+    updateReturnTotals();
+}
+
+function updateReturnTotals() {
+    const inputs = document.querySelectorAll('.return-qty-input');
+    let grandRefund = 0;
+
+    inputs.forEach(input => {
+        const qty = parseFloat(input.value) || 0;
+        const max = parseFloat(input.getAttribute('data-max')) || 0;
+        const price = parseFloat(input.getAttribute('data-price')) || 0;
+
+        if (qty > max) {
+            input.value = max;
+        }
+
+        const validQty = Math.min(Math.max(0, qty), max);
+        const itemSubtotal = validQty * price;
+        grandRefund += itemSubtotal;
+
+        const row = input.closest('tr');
+        if (row) {
+            const subtotalEl = row.querySelector('.return-item-subtotal');
+            if (subtotalEl) subtotalEl.textContent = `${settings.currency || '₹'}${itemSubtotal.toFixed(2)}`;
+        }
+    });
+
+    const refundText = document.getElementById('return-total-refund-text');
+    if (refundText) refundText.textContent = `${settings.currency || '₹'}${grandRefund.toFixed(2)}`;
+}
+
+function confirmProcessReturnBill() {
+    if (!activeReturnTargetSale) {
+        alert('No active bill selected to return.');
+        return;
+    }
+
+    const inputs = document.querySelectorAll('.return-qty-input');
+    const returnItems = [];
+    let totalRefundAmount = 0;
+
+    inputs.forEach(input => {
+        const index = parseInt(input.getAttribute('data-index'));
+        const returnQty = parseFloat(input.value) || 0;
+        const price = parseFloat(input.getAttribute('data-price')) || 0;
+        const originalItem = activeReturnTargetSale.items[index];
+
+        if (returnQty > 0 && originalItem) {
+            const subtotal = returnQty * price;
+            totalRefundAmount += subtotal;
+
+            returnItems.push({
+                ...originalItem,
+                quantity: returnQty,
+                qty: returnQty,
+                price: price,
+                salePrice: price,
+                total: subtotal
+            });
+
+            // Restock items in products array
+            const prodIndex = (products || []).findIndex(p => p.id === originalItem.id || p.name === originalItem.name);
+            if (prodIndex > -1) {
+                products[prodIndex].stock = Number(products[prodIndex].stock || 0) + returnQty;
+            }
+        }
+    });
+
+    if (returnItems.length === 0 || totalRefundAmount <= 0) {
+        alert('Please specify at least 1 item return quantity greater than 0.');
+        return;
+    }
+
+    const returnInvoiceNo = `RET-${activeReturnTargetSale.invoiceNo || Date.now()}`;
+    const returnSaleData = {
+        id: 'SALE_RET_' + Date.now(),
+        invoiceNo: returnInvoiceNo,
+        date: new Date().toISOString(),
+        customer: activeReturnTargetSale.customer || { name: 'Cash Customer' },
+        items: returnItems,
+        subtotal: -totalRefundAmount,
+        gst: 0,
+        discount: 0,
+        grandTotal: -totalRefundAmount,
+        paymentMode: activeReturnTargetSale.paymentMode || 'Cash',
+        isReturn: true,
+        refInvoiceNo: activeReturnTargetSale.invoiceNo,
+        waiterName: activeReturnTargetSale.waiterName || '',
+        doctorName: activeReturnTargetSale.doctorName || ''
+    };
+
+    sales.unshift(returnSaleData);
+
+    localStorage.setItem('mediflow_products', JSON.stringify(products));
+    localStorage.setItem('mediflow_sales', JSON.stringify(sales));
+    syncToCloud('products', products);
+    syncToCloud('sales', sales);
+
+    alert(`Return Bill #${returnInvoiceNo} processed successfully! Refund Amount: ${settings.currency || '₹'}${totalRefundAmount.toFixed(2)}`);
+
+    closeReturnBillModal();
+    renderSalesHistory();
+    renderDashboard();
+    if (activeSection === 'products') renderProducts();
+
+    // Print Return Bill Receipt
+    printBill(returnSaleData);
+}
+
+function toggleReturnMode() {
+    openReturnBillModal();
+    const input = document.getElementById('return-bill-id-input');
+    if (input) {
+        setTimeout(() => {
+            input.focus();
+            input.select();
+        }, 150);
+    }
+}
+
+window.toggleReturnMode = toggleReturnMode;
+window.openReturnBillModal = openReturnBillModal;
+window.closeReturnBillModal = closeReturnBillModal;
+window.lookupReturnBill = lookupReturnBill;
+window.updateReturnTotals = updateReturnTotals;
+window.confirmProcessReturnBill = confirmProcessReturnBill;
+
+// --- Table Management Engine ---
+
+let tableList = [];
+
+function loadTableList() {
+    try {
+        tableList = JSON.parse(localStorage.getItem('mediflow_tables')) || [];
+    } catch (e) {
+        tableList = [];
+    }
+    // Seed default tables if empty and table mgmt is enabled
+    if (tableList.length === 0 && settings.enableTableMgmt) {
+        tableList = [
+            { id: 'TBL1', name: 'Table 1', capacity: 4, zone: 'General', status: 'Available' },
+            { id: 'TBL2', name: 'Table 2', capacity: 4, zone: 'General', status: 'Available' },
+            { id: 'TBL3', name: 'Table 3', capacity: 4, zone: 'General', status: 'Available' },
+            { id: 'TBL4', name: 'Table 4', capacity: 6, zone: 'General', status: 'Available' },
+            { id: 'TBL5', name: 'Table 5', capacity: 2, zone: 'General', status: 'Available' },
+            { id: 'AC1',  name: 'AC Table 1', capacity: 4, zone: 'AC Section', status: 'Available' },
+            { id: 'AC2',  name: 'AC Table 2', capacity: 4, zone: 'AC Section', status: 'Available' },
+            { id: 'TKW',  name: 'Takeaway / Parcel', capacity: 0, zone: 'Takeaway', status: 'Available' }
+        ];
+        localStorage.setItem('mediflow_tables', JSON.stringify(tableList));
+    }
+}
+
+function saveTableList() {
+    localStorage.setItem('mediflow_tables', JSON.stringify(tableList));
+    syncToCloud('tables', tableList);
+}
+
+function renderTableManagement() {
+    loadTableList();
+
+    // Show/hide nav item based on setting
+    const navBtn = document.getElementById('nav-table-mgmt');
+    if (navBtn) navBtn.style.display = settings.enableTableMgmt ? 'flex' : 'none';
+
+    // Update billing table dropdown with custom table list
+    const billingSelect = document.getElementById('billing-table-select');
+    if (billingSelect && tableList.length > 0) {
+        billingSelect.innerHTML = '<option value="">Select Table (Optional)</option>';
+        tableList.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t.name;
+            opt.textContent = `${t.name} (${t.zone || 'General'}, ${t.capacity > 0 ? t.capacity + ' seats' : 'Takeaway'})`;
+            billingSelect.appendChild(opt);
+        });
+    }
+
+    const grid = document.getElementById('table-status-grid');
+    if (!grid) return;
+
+    if (tableList.length === 0) {
+        grid.innerHTML = `
+            <div style="grid-column: 1 / -1; text-align: center; padding: 3rem; color: var(--text-muted);">
+                <i data-lucide="layout-grid" style="width: 48px; height: 48px; margin: 0 auto 1rem; display: block; opacity: 0.4;"></i>
+                <p>No tables added yet. Click <strong>Add Table</strong> to create your first dining table.</p>
+            </div>
+        `;
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+        return;
+    }
+
+    const today = new Date().toDateString();
+    const todaySales = (sales || []).filter(s => s.tableName && new Date(s.date).toDateString() === today && !s.isReturn);
+
+    grid.innerHTML = tableList.map((t, idx) => {
+        const tableSales = todaySales.filter(s => s.tableName === t.name);
+        const todayRevenue = tableSales.reduce((sum, s) => sum + Number(s.grandTotal || 0), 0);
+        const statusColor = t.status === 'Occupied' ? '#dc2626' : t.status === 'Reserved' ? '#d97706' : '#16a34a';
+        const statusBg = t.status === 'Occupied' ? '#fee2e2' : t.status === 'Reserved' ? '#fef3c7' : '#dcfce7';
+
+        return `
+            <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 1.25rem; display: flex; flex-direction: column; gap: 0.5rem; position: relative; box-shadow: 0 2px 8px rgba(0,0,0,0.06);">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                    <strong style="font-size: 1rem; color: var(--text-main);">${escapeHtml(t.name)}</strong>
+                    <span style="font-size: 0.75rem; font-weight: 600; background: ${statusBg}; color: ${statusColor}; padding: 2px 8px; border-radius: 20px;">${t.status || 'Available'}</span>
+                </div>
+                <div style="font-size: 0.8rem; color: var(--text-muted);">
+                    <i data-lucide="tag" style="width: 12px; height: 12px; vertical-align: middle;"></i> ${escapeHtml(t.zone || 'General')}
+                    ${t.capacity > 0 ? `&nbsp; <i data-lucide="users" style="width: 12px; height: 12px; vertical-align: middle;"></i> ${t.capacity} seats` : ''}
+                </div>
+                <div style="font-size: 0.85rem; color: var(--success-color); font-weight: 600; margin-top: 4px;">
+                    Today: ${settings.currency || '₹'}${todayRevenue.toFixed(2)} (${tableSales.length} bills)
+                </div>
+                <div style="display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap;">
+                    <button class="btn btn-outline" onclick="setTableStatus(${idx}, 'Available')" style="padding: 3px 8px; font-size: 0.78rem; color: #16a34a; border-color: #16a34a;" title="Mark Available">✓ Free</button>
+                    <button class="btn btn-outline" onclick="setTableStatus(${idx}, 'Occupied')" style="padding: 3px 8px; font-size: 0.78rem; color: #dc2626; border-color: #dc2626;" title="Mark Occupied">🪑 Occupied</button>
+                    <button class="btn btn-outline" onclick="editTableEntry(${idx})" style="padding: 3px 8px; font-size: 0.78rem;" title="Edit"><i data-lucide="edit-2" style="width: 12px;"></i></button>
+                    <button class="btn btn-outline" onclick="deleteTableEntry(${idx})" style="padding: 3px 8px; font-size: 0.78rem; color: var(--danger-color);" title="Delete"><i data-lucide="trash-2" style="width: 12px;"></i></button>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    // Render today's revenue summary
+    const tbody = document.getElementById('table-revenue-tbody');
+    if (tbody) {
+        if (todaySales.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; padding: 20px; color: var(--text-muted);">No table sales recorded today.</td></tr>';
+        } else {
+            const tMap = {};
+            todaySales.forEach(s => {
+                const k = s.tableName || 'Unknown';
+                if (!tMap[k]) tMap[k] = { bills: 0, rev: 0 };
+                tMap[k].bills++;
+                tMap[k].rev += Number(s.grandTotal || 0);
+            });
+            let grandBills = 0, grandRev = 0;
+            tbody.innerHTML = Object.entries(tMap).map(([name, v]) => {
+                grandBills += v.bills;
+                grandRev += v.rev;
+                return `<tr><td><strong>${escapeHtml(name)}</strong></td><td style="text-align: center;">${v.bills}</td><td style="text-align: right; font-weight: bold; color: var(--success-color);">${settings.currency || '₹'}${v.rev.toFixed(2)}</td></tr>`;
+            }).join('') + `<tr style="background: var(--primary-light); font-weight: bold;"><td>TOTAL</td><td style="text-align: center;">${grandBills}</td><td style="text-align: right; color: var(--primary-color);">${settings.currency || '₹'}${grandRev.toFixed(2)}</td></tr>`;
+        }
+    }
+}
+
+function setTableStatus(idx, status) {
+    if (tableList[idx]) {
+        tableList[idx].status = status;
+        saveTableList();
+        renderTableManagement();
+    }
+}
+
+function openAddTableModal(idx = null) {
+    const modal = document.getElementById('add-table-modal');
+    if (!modal) return;
+
+    document.getElementById('edit-table-index').value = idx !== null ? idx : '';
+    document.getElementById('add-table-modal-title').textContent = idx !== null ? 'Edit Table' : 'Add Table';
+
+    if (idx !== null && tableList[idx]) {
+        const t = tableList[idx];
+        document.getElementById('table-name-input').value = t.name || '';
+        document.getElementById('table-capacity-input').value = t.capacity || 4;
+        document.getElementById('table-zone-input').value = t.zone || 'General';
+    } else {
+        document.getElementById('table-name-input').value = '';
+        document.getElementById('table-capacity-input').value = 4;
+        document.getElementById('table-zone-input').value = 'General';
+    }
+
+    modal.style.display = 'flex';
+    setTimeout(() => document.getElementById('table-name-input').focus(), 100);
+}
+
+function closeAddTableModal() {
+    const modal = document.getElementById('add-table-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+function saveTableEntry() {
+    const name = (document.getElementById('table-name-input')?.value || '').trim();
+    if (!name) { alert('Please enter a table name.'); return; }
+
+    const capacity = parseInt(document.getElementById('table-capacity-input')?.value) || 4;
+    const zone = document.getElementById('table-zone-input')?.value || 'General';
+    const idxVal = document.getElementById('edit-table-index')?.value;
+    const idx = idxVal !== '' ? parseInt(idxVal) : null;
+
+    if (idx !== null && tableList[idx]) {
+        tableList[idx].name = name;
+        tableList[idx].capacity = capacity;
+        tableList[idx].zone = zone;
+    } else {
+        tableList.push({
+            id: 'TBL' + Date.now(),
+            name,
+            capacity,
+            zone,
+            status: 'Available'
+        });
+    }
+
+    saveTableList();
+    closeAddTableModal();
+    renderTableManagement();
+}
+
+function editTableEntry(idx) {
+    openAddTableModal(idx);
+}
+
+function deleteTableEntry(idx) {
+    if (!confirm(`Delete "${tableList[idx]?.name}"? This cannot be undone.`)) return;
+    tableList.splice(idx, 1);
+    saveTableList();
+    renderTableManagement();
+}
+
+window.renderTableManagement = renderTableManagement;
+window.openAddTableModal = openAddTableModal;
+window.closeAddTableModal = closeAddTableModal;
+window.saveTableEntry = saveTableEntry;
+window.editTableEntry = editTableEntry;
+window.deleteTableEntry = deleteTableEntry;
+window.setTableStatus = setTableStatus;
+
