@@ -4192,8 +4192,6 @@ function renderMenuCard(query) {
 
                     <div class="menu-details-meta">
                         ${p.hsn ? `<span class="meta-tag"><i data-lucide="barcode" style="width: 14px;"></i> HSN: ${p.hsn}</span>` : ''}
-                        ${p.batch ? `<span class="meta-tag"><i data-lucide="layers" style="width: 14px;"></i> Batch: ${p.batch}</span>` : ''}
-                        ${p.expiry ? `<span class="meta-tag"><i data-lucide="calendar" style="width: 14px;"></i> Exp: ${p.expiry}</span>` : ''}
                         ${p.gst ? `<span class="meta-tag"><i data-lucide="percent" style="width: 14px;"></i> GST: ${p.gst}%</span>` : ''}
                     </div>
 
