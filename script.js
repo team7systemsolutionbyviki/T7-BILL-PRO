@@ -1079,27 +1079,64 @@ function setupEventListeners() {
     billingSearch.addEventListener('keydown', (e) => {
         const resultsDiv = document.getElementById('search-results');
         const items = resultsDiv.querySelectorAll('.search-item');
-        if (items.length > 0) {
-            if (e.key === 'ArrowDown') {
+        const query = e.target.value.trim().toLowerCase();
+
+        if (e.key === 'ArrowDown') {
+            if (items.length > 0) {
                 e.preventDefault();
                 searchSelectedIndex = Math.min(searchSelectedIndex + 1, items.length - 1);
                 updateSearchSelection(items);
-            } else if (e.key === 'ArrowUp') {
+            }
+        } else if (e.key === 'ArrowUp') {
+            if (items.length > 0) {
                 e.preventDefault();
                 searchSelectedIndex = Math.max(searchSelectedIndex - 1, 0);
                 updateSearchSelection(items);
-            } else if (e.key === 'Enter') {
-                if (e.ctrlKey) return; // Let the global shortcut handle it
-                e.preventDefault();
-                if (searchSelectedIndex >= 0 && searchSelectedIndex < items.length) {
-                    items[searchSelectedIndex].click();
-                } else if (items.length > 0) {
-                    items[0].click();
+            }
+        } else if (e.key === 'Enter') {
+            if (e.ctrlKey) return; // Let the global shortcut handle it
+            e.preventDefault();
+
+            if (query === '') {
+                if (cart.length > 0) {
+                    processSale(true);
+                }
+                return;
+            }
+
+            // 1. Check for exact barcode match first
+            const exactMatch = products.find(p => p.barcode && String(p.barcode).trim().toLowerCase() === query);
+            if (exactMatch) {
+                addToCart(exactMatch.id);
+                e.target.value = '';
+                resultsDiv.style.display = 'none';
+                searchSelectedIndex = -1;
+                return;
+            }
+
+            // 2. If user selected an item with arrow keys
+            if (searchSelectedIndex >= 0 && searchSelectedIndex < items.length) {
+                items[searchSelectedIndex].click();
+                return;
+            }
+
+            // 3. Otherwise, if search result dropdown items exist, click the first one
+            if (items.length > 0) {
+                items[0].click();
+            } else {
+                // 4. Fallback check in products array if dropdown is empty or closed
+                const matchProduct = products.find(p => 
+                    p.barcode && String(p.barcode).trim().toLowerCase() === query
+                ) || products.find(p => 
+                    p.name && p.name.toLowerCase() === query
+                );
+                if (matchProduct) {
+                    addToCart(matchProduct.id);
+                    e.target.value = '';
+                    resultsDiv.style.display = 'none';
+                    searchSelectedIndex = -1;
                 }
             }
-        } else if (e.key === 'Enter' && e.target.value.trim() === '' && cart.length > 0) {
-            e.preventDefault();
-            processSale(true);
         }
     });
 
@@ -1860,10 +1897,10 @@ function renderProducts() {
         let filtered = products;
         if (query) {
             filtered = products.filter(p => 
-                p.name.toLowerCase().includes(query) || 
-                (p.barcode && p.barcode.toLowerCase().includes(query)) || 
-                (p.batch && p.batch.toLowerCase().includes(query)) ||
-                (p.category && p.category.toLowerCase().includes(query))
+                (p.name && p.name.toLowerCase().includes(query)) || 
+                (p.barcode && String(p.barcode).toLowerCase().includes(query)) || 
+                (p.batch && String(p.batch).toLowerCase().includes(query)) ||
+                (p.category && String(p.category).toLowerCase().includes(query))
             );
         }
 
@@ -2015,36 +2052,55 @@ let searchSelectedIndex = -1;
 let customerSearchSelectedIndex = -1;
 
 // --- Billing Logic ---
+let lastBillingSearchTime = 0;
+let lastBillingSearchLength = 0;
+
 function handleBillingSearch(e) {
     searchSelectedIndex = -1;
     const query = e.target.value.trim().toLowerCase();
+    const rawVal = e.target.value;
     const resultsDiv = document.getElementById('search-results');
     
     if (query.length < 1) {
         resultsDiv.style.display = 'none';
+        lastBillingSearchTime = Date.now();
+        lastBillingSearchLength = 0;
         return;
     }
 
-    // Check for EXACT barcode match first (Hardware Scanners)
-    const exactMatch = products.find(p => p.barcode && p.barcode.toLowerCase() === query);
-    if (exactMatch) {
-        addToCart(exactMatch.id);
-        e.target.value = '';
-        resultsDiv.style.display = 'none';
-        return;
+    const now = Date.now();
+    const timeDiff = now - lastBillingSearchTime;
+    const lengthDiff = rawVal.length - lastBillingSearchLength;
+    lastBillingSearchTime = now;
+    lastBillingSearchLength = rawVal.length;
+
+    // Fast scanner input: pasted multi-character input (> 1 char at once) or super fast keystroke sequence (< 40ms apart)
+    const isFastInput = lengthDiff > 1 || (timeDiff < 40 && timeDiff > 0);
+
+    // Auto-add on exact barcode match on `input` ONLY for fast hardware scanners / paste.
+    // Manual human typing will not be interrupted prematurely when typing longer codes (e.g. typing 44CODE when barcode 4 exists).
+    if (isFastInput) {
+        const exactMatch = products.find(p => p.barcode && String(p.barcode).trim().toLowerCase() === query);
+        if (exactMatch) {
+            addToCart(exactMatch.id);
+            e.target.value = '';
+            resultsDiv.style.display = 'none';
+            lastBillingSearchLength = 0;
+            return;
+        }
     }
 
     const filtered = products.filter(p => 
-        p.name.toLowerCase().includes(query) || 
-        (p.barcode && p.barcode.toLowerCase().includes(query)) ||
-        p.batch.toLowerCase().includes(query)
+        (p.name && p.name.toLowerCase().includes(query)) || 
+        (p.barcode && String(p.barcode).toLowerCase().includes(query)) ||
+        (p.batch && String(p.batch).toLowerCase().includes(query))
     ).slice(0, 5);
 
     if (filtered.length > 0) {
         resultsDiv.innerHTML = filtered.map(p => `
             <div class="search-item" onclick="addToCart('${p.id}')">
-                <span class="name">${p.name} <small>(${p.category})</small></span>
-                <span class="details">Barcode: ${p.barcode || 'N/A'} | Batch: ${p.batch} | Price: ${settings.currency}${p.salePrice}</span>
+                <span class="name">${p.name} <small>(${p.category || ''})</small></span>
+                <span class="details">Barcode: ${p.barcode || 'N/A'} | Batch: ${p.batch || ''} | Price: ${settings.currency}${p.salePrice}</span>
             </div>
         `).join('');
         resultsDiv.style.display = 'block';
@@ -4224,10 +4280,10 @@ function renderMenuCard(query) {
     // 3. Filter Products
     let filteredProducts = products.filter(p => {
         const matchesSearch = searchQuery === '' || 
-            p.name.toLowerCase().includes(searchQuery) ||
-            (p.category && p.category.toLowerCase().includes(searchQuery)) ||
-            (p.barcode && p.barcode.toLowerCase().includes(searchQuery)) ||
-            (p.hsn && p.hsn.toLowerCase().includes(searchQuery));
+            (p.name && p.name.toLowerCase().includes(searchQuery)) ||
+            (p.category && String(p.category).toLowerCase().includes(searchQuery)) ||
+            (p.barcode && String(p.barcode).toLowerCase().includes(searchQuery)) ||
+            (p.hsn && String(p.hsn).toLowerCase().includes(searchQuery));
 
         if (!matchesSearch) return false;
 
