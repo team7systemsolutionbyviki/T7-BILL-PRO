@@ -1017,6 +1017,9 @@ function switchSection(sectionId) {
     if (sectionId === 'digital-orders') {
         renderDigitalOrders();
     }
+    if (sectionId === 'branches') {
+        renderBranches();
+    }
     if (sectionId === 'staff-management') {
         renderStaffManagement();
     }
@@ -6098,6 +6101,12 @@ window.openMenuOrderCheckoutModal = openMenuOrderCheckoutModal;
 window.closeMenuOrderCheckoutModal = closeMenuOrderCheckoutModal;
 window.submitCustomerDigitalOrder = submitCustomerDigitalOrder;
 window.closeMenuOrderSuccessModal = closeMenuOrderSuccessModal;
+window.renderBranches = renderBranches;
+window.openBranchModal = openBranchModal;
+window.closeBranchModal = closeBranchModal;
+window.toggleBranchLock = toggleBranchLock;
+window.changeBranchAMC = changeBranchAMC;
+window.deleteBranch = deleteBranch;
 
 // --- KOT (Kitchen Order Ticket) Feature ---
 function loadSettingsFields() {
