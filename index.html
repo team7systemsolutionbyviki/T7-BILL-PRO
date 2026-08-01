@@ -491,6 +491,9 @@
                             <button class="btn btn-outline" id="import-products-btn">
                                 <i data-lucide="upload" style="width: 16px;"></i> Import (CSV/JSON)
                             </button>
+                            <button type="button" class="btn btn-outline" style="border-color: #2563eb; color: #2563eb; font-weight: 600;" onclick="copyProductsFromMainBranch()" title="Copy all old products from Main Branch to this branch">
+                                <i data-lucide="copy" style="width: 16px;"></i> Copy Old Products
+                            </button>
                             <button type="button" class="btn btn-outline" style="border-color: #d97706; color: #d97706; font-weight: 600;" onclick="removeDuplicateProducts()" title="Merge duplicate product names and combine stock">
                                 <i data-lucide="copy-x" style="width: 16px;"></i> Merge Duplicates
                             </button>
@@ -506,6 +509,7 @@
                             <thead>
                                 <tr>
                                     <th>Product Name</th>
+                                    <th>Barcode</th>
                                     <th>Category</th>
                                     <th>Unit</th>
                                     <th>HSN</th>

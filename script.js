@@ -2,7 +2,7 @@
 
 // --- Constants & State ---
 let branches = JSON.parse(localStorage.getItem('mediflow_branches')) || [];
-let currentBranchId = 'branch_default';
+let currentBranchId = sessionStorage.getItem('mediflow_current_branch') || 'branch_default';
 let currentUser = sessionStorage.getItem('mediflow_user') || null;
 let currentTheme = localStorage.getItem('mediflow_theme') || 'light';
 let admins = JSON.parse(localStorage.getItem('mediflow_admins')) || [];
@@ -24,11 +24,58 @@ if (branches.length === 0) {
 const branchSpecificKeys = ['mediflow_products', 'mediflow_sales', 'mediflow_settings', 'mediflow_purchases', 'mediflow_expenses', 'mediflow_categories', 'mediflow_expense_categories', 'mediflow_customers', 'mediflow_customer_payments', 'mediflow_suppliers', 'mediflow_supplier_payments', 'mediflow_held_carts', 'mediflow_amc', 'mediflow_staff', 'mediflow_attendance', 'mediflow_staff_advances', 'mediflow_salary_payments', 'mediflow_digital_orders'];
 
 const originalGetItem = localStorage.getItem;
+const originalSetItem = localStorage.setItem;
+const originalRemoveItem = localStorage.removeItem;
+
 localStorage.getItem = function(key) {
     if (branchSpecificKeys.includes(key) && typeof currentBranchId !== 'undefined' && currentBranchId) {
         return originalGetItem.apply(this, [`mediflow_${currentBranchId}_${key.replace('mediflow_', '')}`]);
     }
     return originalGetItem.apply(this, [key]);
+};
+
+localStorage.setItem = function(key, value) {
+    let actualKey = key;
+    if (branchSpecificKeys.includes(key) && typeof currentBranchId !== 'undefined' && currentBranchId) {
+        actualKey = `mediflow_${currentBranchId}_${key.replace('mediflow_', '')}`;
+    }
+    originalSetItem.apply(this, [actualKey, value]);
+
+    // Auto-backup to cloud if Firebase is active
+    if (typeof isSyncingFromCloud !== 'undefined' && !isSyncingFromCloud && typeof isFirebaseEnabled !== 'undefined' && isFirebaseEnabled && typeof db !== 'undefined' && db) {
+        const keyMap = {
+            'mediflow_products': 'products',
+            'mediflow_sales': 'sales',
+            'mediflow_settings': 'settings',
+            'mediflow_purchases': 'purchases',
+            'mediflow_expenses': 'expenses',
+            'mediflow_categories': 'categories',
+            'mediflow_expense_categories': 'expenseCategories',
+            'mediflow_customers': 'customers',
+            'mediflow_suppliers': 'suppliers',
+            'mediflow_admins': 'admins',
+            'mediflow_supplier_payments': 'supplierPayments',
+            'mediflow_customer_payments': 'customerPayments',
+            'mediflow_branches': 'branches',
+            'mediflow_digital_orders': 'digital_orders'
+        };
+
+        if (keyMap[key]) {
+             try {
+                 const payload = (key === 'mediflow_settings') ? JSON.parse(value) : { data: JSON.parse(value) };
+                 if (typeof syncToCloud === 'function') syncToCloud(keyMap[key], payload);
+             } catch(e) {
+                 console.error("Auto-backup parse error for " + key, e);
+             }
+        }
+    }
+};
+
+localStorage.removeItem = function(key) {
+    if (branchSpecificKeys.includes(key) && typeof currentBranchId !== 'undefined' && currentBranchId) {
+        return originalRemoveItem.apply(this, [`mediflow_${currentBranchId}_${key.replace('mediflow_', '')}`]);
+    }
+    return originalRemoveItem.apply(this, [key]);
 };
 
 // Data Variables (Loaded dynamically based on branch)
@@ -53,12 +100,19 @@ let staffAdvances = [];
 let salaryPayments = [];
 
 function loadBranchData() {
-    const storedProducts = localStorage.getItem('mediflow_products');
+    let storedProducts = localStorage.getItem('mediflow_products');
     if (storedProducts === null) {
-        products = [
-            { id: 'P01', name: 'Paracetamol 500mg', category: 'Tablet', hsn: '3004', batch: 'BN1024', expiry: '2026-12-31', mrp: 40.00, salePrice: 35.00, stock: 150, gst: 12 },
-            { id: 'P02', name: 'Amoxicillin 250mg', category: 'Capsule', hsn: '3004', batch: 'BN2025', expiry: '2026-06-15', mrp: 120.00, salePrice: 110.00, stock: 8, gst: 12 }
-        ];
+        if (currentBranchId === 'branch_default' || currentBranchId === 'main') {
+            const legacyData = originalGetItem.call(localStorage, 'mediflow_products');
+            if (legacyData !== null) {
+                localStorage.setItem('mediflow_products', legacyData);
+                storedProducts = legacyData;
+            }
+        }
+    }
+
+    if (storedProducts === null) {
+        products = [];
         localStorage.setItem('mediflow_products', JSON.stringify(products));
     } else {
         try {
@@ -77,6 +131,16 @@ function loadBranchData() {
     purchases = JSON.parse(localStorage.getItem('mediflow_purchases')) || [];
     expenses = JSON.parse(localStorage.getItem('mediflow_expenses')) || [];
     categories = JSON.parse(localStorage.getItem('mediflow_categories')) || ['Tablet', 'Syrup', 'Injection', 'Capsule', 'Ointment', 'Other'];
+    categories = Array.from(new Set(categories.map(c => String(c).trim()).filter(Boolean)));
+    products.forEach(p => {
+        if (p.category && String(p.category).trim() !== '') {
+            const catClean = String(p.category).trim();
+            if (!categories.some(c => c.toLowerCase() === catClean.toLowerCase())) {
+                categories.push(catClean);
+            }
+        }
+    });
+    localStorage.setItem('mediflow_categories', JSON.stringify(categories));
     expenseCategories = JSON.parse(localStorage.getItem('mediflow_expense_categories')) || ['Rent', 'Electricity', 'Salary', 'Maintenance', 'Other'];
     amcData = JSON.parse(localStorage.getItem('mediflow_amc')) || null;
     customers = JSON.parse(localStorage.getItem('mediflow_customers')) || [];
@@ -189,6 +253,15 @@ async function syncToCloud(collectionName, documentData) {
     }
 }
 
+function extractArrayData(cloudData) {
+    if (!cloudData) return [];
+    if (Array.isArray(cloudData)) return cloudData;
+    if (cloudData.data && Array.isArray(cloudData.data)) return cloudData.data;
+    if (cloudData.payload && Array.isArray(cloudData.payload)) return cloudData.payload;
+    if (cloudData.payload && cloudData.payload.data && Array.isArray(cloudData.payload.data)) return cloudData.payload.data;
+    return [];
+}
+
 let isSyncingFromCloud = false;
 
 async function syncFromCloud() {
@@ -212,13 +285,19 @@ async function syncFromCloud() {
                 if (cloudData === undefined || cloudData === null) continue;
 
                 if (col === 'settings') {
-                    settings = cloudData;
-                    localStorage.setItem('mediflow_settings', JSON.stringify(settings));
+                    if (typeof cloudData === 'object' && !Array.isArray(cloudData)) {
+                        settings = cloudData;
+                        localStorage.setItem('mediflow_settings', JSON.stringify(settings));
+                    }
                 } else if (col === 'branches') {
-                    branches = Array.isArray(cloudData) ? cloudData : [];
+                    branches = extractArrayData(cloudData);
                     localStorage.setItem('mediflow_branches', JSON.stringify(branches));
                 } else {
-                    const arrayData = Array.isArray(cloudData) ? cloudData : [];
+                    const arrayData = extractArrayData(cloudData);
+                    if (arrayData.length === 0 && (col === 'products' || col === 'categories')) {
+                        // Skip overwriting local products/categories with empty payload if cloud payload is unpopulated
+                        continue;
+                    }
                     if (col === 'products') products = arrayData;
                     else if (col === 'sales') sales = arrayData;
                     else if (col === 'purchases') purchases = arrayData;
@@ -286,13 +365,18 @@ function setupCloudListener() {
                         }
 
                         if (colKey === 'settings') {
-                            settings = cloudData;
-                            localStorage.setItem('mediflow_settings', JSON.stringify(settings));
+                            if (typeof cloudData === 'object' && !Array.isArray(cloudData)) {
+                                settings = cloudData;
+                                localStorage.setItem('mediflow_settings', JSON.stringify(settings));
+                            }
                         } else if (colKey === 'branches') {
-                            branches = Array.isArray(cloudData) ? cloudData : [];
+                            branches = extractArrayData(cloudData);
                             localStorage.setItem('mediflow_branches', JSON.stringify(branches));
                         } else {
-                            const arrayData = Array.isArray(cloudData) ? cloudData : [];
+                            const arrayData = extractArrayData(cloudData);
+                            if (arrayData.length === 0 && (colKey === 'products' || colKey === 'categories')) {
+                                return;
+                            }
                             if (colKey === 'products') products = arrayData;
                             else if (colKey === 'sales') sales = arrayData;
                             else if (colKey === 'purchases') purchases = arrayData;
@@ -397,44 +481,6 @@ window.syncToCloud = syncToCloud;
 let activeSection = 'dashboard';
 let currentPayMode = 'Cash';
 let isReturnMode = false;
-
-// --- Auto-Backup Interceptor ---
-const originalSetItem = localStorage.setItem;
-localStorage.setItem = function(key, value) {
-    let actualKey = key;
-    if (branchSpecificKeys.includes(key) && typeof currentBranchId !== 'undefined' && currentBranchId) {
-        actualKey = `mediflow_${currentBranchId}_${key.replace('mediflow_', '')}`;
-    }
-    originalSetItem.apply(this, [actualKey, value]);
-
-    // Only auto-backup if we aren't currently pulling down from Firebase
-    if (typeof isSyncingFromCloud !== 'undefined' && !isSyncingFromCloud && typeof isFirebaseEnabled !== 'undefined' && isFirebaseEnabled && typeof db !== 'undefined' && db) {
-        const keyMap = {
-            'mediflow_products': 'products',
-            'mediflow_sales': 'sales',
-            'mediflow_settings': 'settings',
-            'mediflow_purchases': 'purchases',
-            'mediflow_expenses': 'expenses',
-            'mediflow_categories': 'categories',
-            'mediflow_expense_categories': 'expenseCategories',
-            'mediflow_customers': 'customers',
-            'mediflow_suppliers': 'suppliers',
-            'mediflow_admins': 'admins',
-            'mediflow_supplier_payments': 'supplierPayments',
-            'mediflow_customer_payments': 'customerPayments',
-            'mediflow_branches': 'branches'
-        };
-
-        if (keyMap[key]) {
-             try {
-                 const payload = (key === 'mediflow_settings') ? JSON.parse(value) : { data: JSON.parse(value) };
-                 syncToCloud(keyMap[key], payload);
-             } catch(e) {
-                 console.error("Auto-backup parse error for " + key, e);
-             }
-        }
-    }
-};
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
@@ -1006,7 +1052,13 @@ function switchSection(sectionId) {
         }
     }
     if (sectionId === 'settings') {
+        ensureAllCategoriesFromProducts();
         if (typeof loadSettingsFields === 'function') loadSettingsFields();
+        renderCategoryManagement();
+    }
+    if (sectionId === 'products') {
+        ensureAllCategoriesFromProducts();
+        renderProducts();
     }
     if (sectionId === 'reports') {
         const today = new Date().toISOString().split('T')[0];
@@ -1270,10 +1322,8 @@ function setupEventListeners() {
         });
 
         productImportInput.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (file) {
-                handleProductImportFile(file);
-                e.target.value = '';
+            if (typeof importProducts === 'function') {
+                importProducts(e);
             }
         });
     }
@@ -1679,53 +1729,126 @@ function exportProductsCSV() {
     document.body.removeChild(link);
 }
 
+function parseImportDate(rawDate) {
+    if (!rawDate) return new Date(Date.now() + 31536000000).toISOString().split('T')[0];
+    const s = String(rawDate).trim();
+    if (!s) return new Date(Date.now() + 31536000000).toISOString().split('T')[0];
+
+    // Already YYYY-MM-DD
+    if (/^\d{4}[-\/. ]\d{1,2}[-\/. ]\d{1,2}$/.test(s)) {
+        const parts = s.split(/[-\/. ]/);
+        const y = parts[0];
+        const m = parts[1].padStart(2, '0');
+        const d = parts[2].padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    }
+
+    // DD-MM-YYYY or DD.MM.YYYY or DD/MM/YYYY
+    if (/^\d{1,2}[-\/. ]\d{1,2}[-\/. ]\d{4}$/.test(s)) {
+        const parts = s.split(/[-\/. ]/);
+        const d = parts[0].padStart(2, '0');
+        const m = parts[1].padStart(2, '0');
+        const y = parts[2];
+        return `${y}-${m}-${d}`;
+    }
+
+    // Fallback JavaScript Date parse
+    const dObj = new Date(s);
+    if (!isNaN(dObj.getTime())) {
+        return dObj.toISOString().split('T')[0];
+    }
+
+    return new Date(Date.now() + 31536000000).toISOString().split('T')[0];
+}
+function parseImportStock(rawStock) {
+    if (rawStock === undefined || rawStock === null || rawStock === '') return 0;
+    const str = String(rawStock).trim().toLowerCase();
+    
+    if (str === 'infinity' || str === 'inf' || str === '∞' || str === 'unlimited' || str === '-1') {
+        return 999999;
+    }
+    
+    const parsed = parseFloat(str);
+    if (isNaN(parsed)) return 0;
+    if (parsed >= 999999 || parsed === Infinity || parsed < 0) return 999999;
+    
+    return parsed;
+}
+window.parseImportStock = parseImportStock;
+
 function importProducts(e) {
     const file = e.target.files[0];
     if (!file) return;
 
+    const getStr = (val) => (val !== undefined && val !== null) ? String(val).trim() : '';
+
     const reader = new FileReader();
     reader.onload = function(event) {
         try {
-            const content = event.target.result;
+            let content = event.target.result;
+            if (content.charCodeAt(0) === 0xFEFF) {
+                content = content.slice(1);
+            }
+
             let count = 0;
 
             if (file.name.endsWith('.json')) {
                 const parsed = JSON.parse(content);
                 const items = Array.isArray(parsed) ? parsed : (parsed.products || parsed.data || []);
                 if (Array.isArray(items) && items.length > 0) {
-                    items.forEach(p => {
-                        const name = p.name || p.productName || p.title;
-                        if (name && String(name).trim() !== '') {
-                            products.push({
-                                id: p.id || ('P' + Date.now() + Math.random().toString().slice(-4)),
-                                name: String(name).trim(),
-                                barcode: p.barcode || '',
-                                category: p.category || 'General',
-                                unit: (p.unit || 'pcs').toLowerCase(),
-                                saleUnit: (p.saleUnit || p.unit || 'pcs').toLowerCase(),
-                                hsn: p.hsn || '',
-                                batch: p.batch || 'GEN',
-                                expiry: p.expiry || new Date(Date.now() + 31536000000).toISOString().split('T')[0],
+                    items.forEach((p, idx) => {
+                        const name = getStr(p.name || p.productName || p.title || p.itemName);
+                        if (name) {
+                            const cat = getStr(p.category || p.categoryName || p.group || p.type) || 'General';
+                            const barcode = getStr(p.barcode || p.code || p.bar_code || p.barcodeNo || p.upc || p.ean);
+                            
+                            if (cat && typeof ensureCategoryExists === 'function') {
+                                ensureCategoryExists(cat);
+                            }
+
+                            const existingIdx = products.findIndex(ep => 
+                                (ep.name && ep.name.trim().toLowerCase() === name.trim().toLowerCase()) &&
+                                (ep.batch && ep.batch.trim().toLowerCase() === getStr(p.batch || 'GEN').toLowerCase())
+                            );
+
+                            const pObj = {
+                                id: existingIdx >= 0 ? products[existingIdx].id : (p.id || ('P' + Date.now() + Math.random().toString().slice(-4) + idx)),
+                                name: name,
+                                barcode: barcode || (existingIdx >= 0 ? products[existingIdx].barcode : ''),
+                                category: cat,
+                                unit: (getStr(p.unit) || 'pcs').toLowerCase(),
+                                saleUnit: (getStr(p.saleUnit) || getStr(p.unit) || 'pcs').toLowerCase(),
+                                hsn: getStr(p.hsn) || (existingIdx >= 0 ? products[existingIdx].hsn : ''),
+                                batch: getStr(p.batch) || 'GEN',
+                                expiry: parseImportDate(p.expiry),
                                 mrp: parseFloat(p.mrp) || 0,
-                                salePrice: parseFloat(p.salePrice) || 0,
-                                stock: parseFloat(p.stock) || 0,
+                                salePrice: parseFloat(p.salePrice) || parseFloat(p.mrp) || 0,
+                                stock: parseImportStock(p.stock),
                                 gst: parseFloat(p.gst) || 0
-                            });
+                            };
+
+                            if (existingIdx >= 0) {
+                                products[existingIdx] = pObj;
+                            } else {
+                                products.push(pObj);
+                            }
                             count++;
                         }
                     });
                 }
             } else {
-                // CSV Parsing with empty line protection & dynamic column mapping
+                // CSV Parsing with BOM stripping, empty line protection & robust column mapping
                 const rawLines = content.split(/\r\n|\n|\r/);
-                
-                // Filter out lines that are purely empty, whitespace, or commas only
-                const lines = rawLines.filter(l => l.replace(/[,; "'\t]/g, '').trim().length > 0);
+                const lines = rawLines.filter(l => l.replace(/[,; "'\t\ufeff]/g, '').trim().length > 0);
 
                 if (lines.length > 0) {
-                    // Check if line 0 is a header line
                     const firstLineCols = parseCSVLine(lines[0]);
-                    const isHeader = firstLineCols.some(c => /name|product|category|price|mrp|stock|hsn|batch|expiry|barcode|unit/i.test(c));
+                    const sampleDataRow = lines.length > 1 ? parseCSVLine(lines[1]) : firstLineCols;
+                    
+                    const isHeader = firstLineCols.some(c => {
+                        const clean = String(c).toLowerCase().replace(/[^a-z0-9]/g, '');
+                        return /product|itemname|itemcode|cat|group|hsn|batch|exp|mrp|saleprice|rate|stock|qty|barcode|gst|tax/i.test(clean);
+                    });
 
                     let colMap = {
                         name: 0,
@@ -1744,20 +1867,51 @@ function importProducts(e) {
 
                     if (isHeader) {
                         firstLineCols.forEach((colName, index) => {
-                            const cLower = colName.toLowerCase().trim();
-                            if (cLower.includes('name') || cLower.includes('item') || cLower.includes('product')) colMap.name = index;
-                            else if (cLower.includes('cat')) colMap.category = index;
-                            else if (cLower.includes('sales unit') || cLower.includes('sale unit')) colMap.saleUnit = index;
-                            else if (cLower.includes('unit') || cLower.includes('pkg')) colMap.unit = index;
-                            else if (cLower.includes('hsn')) colMap.hsn = index;
-                            else if (cLower.includes('batch')) colMap.batch = index;
-                            else if (cLower.includes('exp')) colMap.expiry = index;
-                            else if (cLower.includes('mrp')) colMap.mrp = index;
-                            else if (cLower.includes('sale') || cLower.includes('price')) colMap.salePrice = index;
-                            else if (cLower.includes('stock') || cLower.includes('qty')) colMap.stock = index;
-                            else if (cLower.includes('bar') || cLower.includes('code')) colMap.barcode = index;
-                            else if (cLower.includes('gst') || cLower.includes('tax')) colMap.gst = index;
+                            const cClean = String(colName).toLowerCase().replace(/[^a-z0-9]/g, '');
+                            if (!cClean) return;
+
+                            if (cClean.includes('category') || cClean.includes('group') || cClean === 'cat' || cClean === 'type' || cClean === 'department' || cClean === 'grp') {
+                                colMap.category = index;
+                            } else if (cClean.includes('gst') || cClean.includes('tax') || cClean.includes('vat')) {
+                                colMap.gst = index;
+                            } else if (cClean.includes('barcode') || cClean.includes('barcodeno') || cClean === 'upc' || cClean === 'ean' || cClean === 'itemcode' || cClean === 'productcode') {
+                                colMap.barcode = index;
+                            } else if (cClean.includes('productname') || cClean.includes('itemname') || cClean === 'name' || cClean === 'product' || cClean === 'item' || cClean === 'title') {
+                                colMap.name = index;
+                            } else if (cClean.includes('salesunit') || cClean.includes('saleunit')) {
+                                colMap.saleUnit = index;
+                            } else if (cClean.includes('unit') || cClean.includes('pkg')) {
+                                colMap.unit = index;
+                            } else if (cClean.includes('hsn') || cClean.includes('sac')) {
+                                colMap.hsn = index;
+                            } else if (cClean.includes('batch') || cClean.includes('lot')) {
+                                colMap.batch = index;
+                            } else if (cClean.includes('exp')) {
+                                colMap.expiry = index;
+                            } else if (cClean.includes('mrp')) {
+                                colMap.mrp = index;
+                            } else if (cClean.includes('saleprice') || cClean.includes('selling') || cClean.includes('sale') || cClean.includes('price') || cClean.includes('rate')) {
+                                colMap.salePrice = index;
+                            } else if (cClean.includes('stock') || cClean.includes('qty') || cClean.includes('quantity') || cClean.includes('balance') || cClean.includes('opening')) {
+                                colMap.stock = index;
+                            } else if (cClean === 'code' || cClean === 'bar') {
+                                colMap.barcode = index;
+                            }
                         });
+                    } else if (sampleDataRow && sampleDataRow.length > 0) {
+                        const val9 = parseFloat(sampleDataRow[9]);
+                        const val10 = parseFloat(sampleDataRow[10]);
+                        const val11 = parseFloat(sampleDataRow[11]);
+
+                        if (!isNaN(val9) && [0, 5, 12, 18, 28].includes(val9) && (!isNaN(val10) && val10 > 28)) {
+                            colMap.gst = 9;
+                            colMap.stock = 10;
+                            colMap.barcode = 11;
+                        } else if (!isNaN(val11) && [0, 5, 12, 18, 28].includes(val11)) {
+                            colMap.stock = 9;
+                            colMap.barcode = 10;
+                            colMap.gst = 11;
+                        }
                     }
 
                     const startIdx = isHeader ? 1 : 0;
@@ -1765,61 +1919,97 @@ function importProducts(e) {
                         const cols = parseCSVLine(lines[i]);
                         if (cols.length === 0) continue;
 
-                        let name = cols[colMap.name] || '';
-                        if (!name || name.trim() === '') {
-                            const nonEmp = cols.find(c => c && c.trim().length > 0);
-                            if (nonEmp) name = nonEmp;
+                        let name = getStr(cols[colMap.name]);
+                        if (!name) {
+                            const nonEmp = cols.find(c => getStr(c).length > 0);
+                            if (nonEmp) name = getStr(nonEmp);
                             else continue;
                         }
 
-                        const category = cols[colMap.category] || 'General';
-                        const rawUnit = (cols[colMap.unit] || 'pcs').toLowerCase().trim();
+                        const category = getStr(cols[colMap.category]) || 'General';
+                        const barcode = getStr(cols[colMap.barcode]);
+                        const rawUnit = getStr(cols[colMap.unit]).toLowerCase();
                         const unit = ['kg', 'grm', 'ltr', 'ml', 'pkg', 'plate', 'strip', 'pcs'].includes(rawUnit) ? rawUnit : 'pcs';
-                        const rawSaleUnit = (cols[colMap.saleUnit] || unit).toLowerCase().trim();
+                        const rawSaleUnit = getStr(cols[colMap.saleUnit]).toLowerCase();
                         const saleUnit = ['kg', 'grm', 'ltr', 'ml', 'pkg', 'plate', 'strip', 'pcs'].includes(rawSaleUnit) ? rawSaleUnit : unit;
                         
-                        const hsn = cols[colMap.hsn] || '';
-                        const batch = cols[colMap.batch] || 'GEN';
-                        let expiry = cols[colMap.expiry] || '';
-                        if (!expiry || !/\d{4}/.test(expiry)) {
-                            expiry = new Date(Date.now() + 31536000000).toISOString().split('T')[0];
-                        }
+                        const hsn = getStr(cols[colMap.hsn]);
+                        const batch = getStr(cols[colMap.batch]) || 'GEN';
+                        const expiry = parseImportDate(cols[colMap.expiry]);
 
                         const mrp = parseFloat(cols[colMap.mrp]) || 0;
                         const salePrice = parseFloat(cols[colMap.salePrice]) || mrp;
-                        const stock = parseFloat(cols[colMap.stock]) || 0;
-                        const barcode = cols[colMap.barcode] || '';
+                        const stock = parseImportStock(cols[colMap.stock]);
                         const gst = parseFloat(cols[colMap.gst]) || 0;
 
-                        products.push({
-                            id: 'P' + Date.now() + Math.floor(Math.random() * 1000) + i,
-                            name: name.trim(),
-                            barcode: barcode.trim(),
-                            category: category.trim(),
+                        if (category && typeof ensureCategoryExists === 'function') {
+                            ensureCategoryExists(category);
+                        }
+
+                        const existingIdx = products.findIndex(ep => 
+                            ep.name && ep.name.trim().toLowerCase() === name.trim().toLowerCase()
+                        );
+
+                        const productObj = {
+                            id: existingIdx >= 0 ? products[existingIdx].id : ('P' + Date.now() + Math.floor(Math.random() * 1000) + i),
+                            name: name,
+                            barcode: barcode !== '' ? barcode : (existingIdx >= 0 ? (products[existingIdx].barcode || '') : ''),
+                            category: category,
                             unit: unit,
                             saleUnit: saleUnit,
-                            hsn: hsn.trim(),
-                            batch: batch.trim(),
-                            expiry: expiry.trim(),
-                            mrp: mrp,
-                            salePrice: salePrice,
+                            hsn: hsn || (existingIdx >= 0 ? (products[existingIdx].hsn || '') : ''),
+                            batch: batch,
+                            expiry: expiry,
+                            mrp: mrp > 0 ? mrp : (existingIdx >= 0 ? products[existingIdx].mrp : 0),
+                            salePrice: salePrice > 0 ? salePrice : (existingIdx >= 0 ? products[existingIdx].salePrice : mrp),
                             stock: stock,
                             gst: gst
-                        });
+                        };
+
+                        if (existingIdx >= 0) {
+                            products[existingIdx] = productObj;
+                        } else {
+                            products.push(productObj);
+                        }
                         count++;
                     }
                 }
             }
 
             if (count > 0) {
+                // Deduplicate any legacy duplicates by name to ensure clean table rendering
+                const nameMap = {};
+                const deduplicated = [];
+                products.forEach(p => {
+                    const norm = (p.name || '').trim().toLowerCase();
+                    if (!norm) return;
+                    if (nameMap[norm]) {
+                        const existing = nameMap[norm];
+                        if (!existing.barcode && p.barcode) existing.barcode = p.barcode;
+                        if ((!existing.stock || existing.stock < 999999) && p.stock >= 999999) existing.stock = p.stock;
+                        if (p.expiry) existing.expiry = p.expiry;
+                        if (p.batch) existing.batch = p.batch;
+                        if (p.category) existing.category = p.category;
+                        if (p.mrp > 0) existing.mrp = p.mrp;
+                        if (p.salePrice > 0) existing.salePrice = p.salePrice;
+                    } else {
+                        nameMap[norm] = { ...p };
+                        deduplicated.push(nameMap[norm]);
+                    }
+                });
+                products = deduplicated;
+
+                if (typeof ensureAllCategoriesFromProducts === 'function') {
+                    ensureAllCategoriesFromProducts();
+                }
                 saveAndRefresh();
-                alert(`Successfully imported ${count} product(s)!`);
+                alert(`Successfully imported ${count} product(s)! Categories & Barcodes updated.`);
             } else {
                 alert('No valid product data found in the imported file.');
             }
         } catch (err) {
             console.error('Failed to import products:', err);
-            alert('Error reading imported file. Please check file format.');
+            alert('Error reading imported file: ' + err.message);
         }
         e.target.value = '';
     };
@@ -1828,14 +2018,25 @@ function importProducts(e) {
 
 function parseCSVLine(line) {
     if (!line) return [];
+    let s = String(line);
+    if (s.charCodeAt(0) === 0xFEFF) {
+        s = s.slice(1);
+    }
+    let delimiter = ',';
+    if (s.includes(';') && (s.split(';').length > s.split(',').length)) {
+        delimiter = ';';
+    } else if (s.includes('\t') && (s.split('\t').length > s.split(',').length)) {
+        delimiter = '\t';
+    }
+
     const cols = [];
     let insideQuote = false;
     let currentVal = '';
-    for (let j = 0; j < line.length; j++) {
-        const char = line[j];
+    for (let j = 0; j < s.length; j++) {
+        const char = s[j];
         if (char === '"') {
             insideQuote = !insideQuote;
-        } else if (char === ',' && !insideQuote) {
+        } else if (char === delimiter && !insideQuote) {
             cols.push(currentVal.trim().replace(/^"|"$/g, ''));
             currentVal = '';
         } else {
@@ -1915,20 +2116,23 @@ function renderProducts() {
 
         filtered.forEach(p => {
         const tr = document.createElement('tr');
-        const isExpired = new Date(p.expiry) < new Date();
+        const parsedExpiry = parseImportDate(p.expiry);
+        const isExpired = new Date(parsedExpiry) < new Date();
         const isLowStock = p.stock <= 10 && p.stock < 999999;
         const displayStock = p.stock >= 999999 ? '∞' : p.stock;
         const unitDisplay = (p.unit || 'pcs').toUpperCase();
+        const barcodeDisplay = (p.barcode || p.code || p.bar_code || '').trim();
 
         tr.innerHTML = `
-            <td>${p.name}</td>
-            <td><span class="badge" style="background: #e2e8f0; color: #475569;">${p.category}</span></td>
+            <td><strong>${p.name}</strong></td>
+            <td>${barcodeDisplay ? `<span class="badge" style="background: #f1f5f9; color: #334155; font-family: monospace; font-weight: 600;"><i data-lucide="barcode" style="width: 13px; height: 13px; vertical-align: middle;"></i> ${barcodeDisplay}</span>` : '<span style="color: #94a3b8;">-</span>'}</td>
+            <td><span class="badge" style="background: #e2e8f0; color: #475569;">${p.category || 'General'}</span></td>
             <td><span class="badge" style="background: #e0f2fe; color: #0369a1; font-weight: 600;">${unitDisplay}</span></td>
             <td>${p.hsn || '-'}</td>
-            <td>${p.batch}</td>
+            <td>${p.batch || '-'}</td>
             <td>
-                <span class="badge ${isExpired ? 'badge-danger' : (isNearExpiry(p.expiry) ? 'badge-warning' : 'badge-success')}">
-                    ${p.expiry}
+                <span class="badge ${isExpired ? 'badge-danger' : (isNearExpiry(parsedExpiry) ? 'badge-warning' : 'badge-success')}">
+                    ${parsedExpiry}
                 </span>
             </td>
             <td>${settings.currency}${p.mrp}</td>
@@ -1973,9 +2177,24 @@ function openProductModal(id = null) {
         const p = products.find(prod => prod.id === id);
         title.textContent = 'Edit Product';
         document.getElementById('edit-id').value = p.id;
-        document.getElementById('p-name').value = p.name;
-        document.getElementById('p-barcode').value = p.barcode || '';
-        document.getElementById('p-category').value = p.category;
+        document.getElementById('p-name').value = p.name || '';
+        
+        const barcodeVal = (p.barcode || p.code || p.bar_code || p.barcodeNo || p.upc || p.ean || '').trim();
+        document.getElementById('p-barcode').value = barcodeVal;
+
+        if (p.category) {
+            ensureCategoryExists(p.category);
+        }
+        updateCategoryDropdowns();
+
+        const pCatSelect = document.getElementById('p-category');
+        if (pCatSelect && p.category) {
+            pCatSelect.value = p.category;
+            if (!pCatSelect.value || pCatSelect.value !== p.category) {
+                const matchOpt = Array.from(pCatSelect.options).find(opt => opt.value.toLowerCase() === p.category.toLowerCase());
+                if (matchOpt) pCatSelect.value = matchOpt.value;
+            }
+        }
         
         const unitEl = document.getElementById('p-unit');
         if (unitEl) unitEl.value = p.unit || 'pcs';
@@ -2021,10 +2240,10 @@ function handleProductSubmit(e) {
         hsn: document.getElementById('p-hsn').value,
         batch: document.getElementById('p-batch').value,
         expiry: document.getElementById('p-expiry').value,
-        mrp: parseFloat(document.getElementById('p-mrp').value),
-        salePrice: parseFloat(document.getElementById('p-sale-price').value),
-        stock: parseFloat(document.getElementById('p-stock').value),
-        gst: parseFloat(document.getElementById('p-gst').value)
+        mrp: parseFloat(document.getElementById('p-mrp').value) || 0,
+        salePrice: parseFloat(document.getElementById('p-sale-price').value) || 0,
+        stock: parseImportStock(document.getElementById('p-stock').value),
+        gst: parseFloat(document.getElementById('p-gst').value) || 0
     };
 
     if (id) {
@@ -2049,12 +2268,87 @@ function editProduct(id) {
     openProductModal(id);
 }
 
+function ensureCategoryExists(catName) {
+    if (!catName) return;
+    const trimmed = String(catName).trim();
+    if (!trimmed || trimmed === 'undefined' || trimmed === 'null') return;
+
+    if (!Array.isArray(categories)) categories = [];
+    const exists = categories.some(c => String(c).trim().toLowerCase() === trimmed.toLowerCase());
+    if (!exists) {
+        categories.push(trimmed);
+        categories = Array.from(new Set(categories.map(c => String(c).trim()).filter(Boolean)));
+        localStorage.setItem('mediflow_categories', JSON.stringify(categories));
+        if (typeof renderCategoryManagement === 'function') renderCategoryManagement();
+        if (typeof updateCategoryDropdowns === 'function') updateCategoryDropdowns();
+        if (typeof syncToCloud === 'function') syncToCloud('categories', categories);
+    }
+}
+window.ensureCategoryExists = ensureCategoryExists;
+
+function ensureAllCategoriesFromProducts() {
+    if (!Array.isArray(categories)) categories = [];
+    categories = Array.from(new Set(categories.map(c => String(c).trim()).filter(Boolean)));
+
+    if (Array.isArray(products)) {
+        products.forEach(p => {
+            if (p.category && String(p.category).trim() !== '') {
+                const catClean = String(p.category).trim();
+                if (!categories.some(c => c.toLowerCase() === catClean.toLowerCase())) {
+                    categories.push(catClean);
+                }
+            }
+        });
+    }
+
+    localStorage.setItem('mediflow_categories', JSON.stringify(categories));
+    if (typeof renderCategoryManagement === 'function') renderCategoryManagement();
+    if (typeof updateCategoryDropdowns === 'function') updateCategoryDropdowns();
+}
+window.ensureAllCategoriesFromProducts = ensureAllCategoriesFromProducts;
+
 function saveAndRefresh() {
+    ensureAllCategoriesFromProducts();
     localStorage.setItem('mediflow_products', JSON.stringify(products));
     renderProducts();
     renderDashboard();
     syncToCloud('products', products);
 }
+
+function copyProductsFromMainBranch() {
+    try {
+        let mainProducts = [];
+        const defaultBranchData = originalGetItem.call(localStorage, 'mediflow_branch_default_products');
+        const legacyData = originalGetItem.call(localStorage, 'mediflow_products');
+        
+        if (defaultBranchData) {
+            mainProducts = JSON.parse(defaultBranchData) || [];
+        } else if (legacyData) {
+            mainProducts = JSON.parse(legacyData) || [];
+        }
+
+        if (!mainProducts || mainProducts.length === 0) {
+            alert('No old products found in Main Branch to copy.');
+            return;
+        }
+
+        let addedCount = 0;
+        mainProducts.forEach(mp => {
+            const exists = products.some(p => p.id === mp.id || (p.name === mp.name && p.batch === mp.batch));
+            if (!exists) {
+                products.push(mp);
+                addedCount++;
+            }
+        });
+
+        saveAndRefresh();
+        alert(`Successfully imported ${addedCount} product(s) from Main Branch! Total products now: ${products.length}`);
+    } catch (e) {
+        console.error('Error copying products from main branch:', e);
+        alert('Failed to copy products: ' + e.message);
+    }
+}
+window.copyProductsFromMainBranch = copyProductsFromMainBranch;
 
 
 let searchSelectedIndex = -1;
@@ -2482,6 +2776,8 @@ function processSale(shouldPrint, shouldWhatsApp = false) {
     sales.push(saleData);
     localStorage.setItem('mediflow_products', JSON.stringify(products));
     localStorage.setItem('mediflow_sales', JSON.stringify(sales));
+    syncToCloud('products', products);
+    syncToCloud('sales', sales);
 
     if (shouldPrint) {
         printBill(saleData);
@@ -6353,93 +6649,11 @@ function removeDuplicateProducts() {
 }
 
 function handleProductImportFile(file) {
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        try {
-            const content = e.target.result;
-            let importedItems = [];
-
-            if (file.name.endsWith('.json')) {
-                const parsed = JSON.parse(content);
-                if (Array.isArray(parsed)) {
-                    importedItems = parsed;
-                } else if (parsed.data && Array.isArray(parsed.data.mediflow_products)) {
-                    importedItems = parsed.data.mediflow_products;
-                } else if (parsed.products && Array.isArray(parsed.products)) {
-                    importedItems = parsed.products;
-                }
-            } else if (file.name.endsWith('.csv')) {
-                importedItems = parseProductsCSV(content);
-            }
-
-            if (!importedItems || importedItems.length === 0) {
-                alert('No valid product data found in the selected file.');
-                return;
-            }
-
-            let updatedExistingCount = 0;
-            let addedNewCount = 0;
-
-            importedItems.forEach(item => {
-                const name = (item.name || item.Name || item.product_name || '').trim();
-                if (!name) return;
-
-                const normName = name.toLowerCase();
-                const existing = products.find(p => (p.name || '').trim().toLowerCase() === normName || (item.id && p.id === item.id));
-
-                const impQty = Number(item.stock !== undefined ? item.stock : (item.Quantity || item.qty || item.quantity || 0));
-                const impMrp = Number(item.mrp !== undefined ? item.mrp : (item.MRP || item.price || 0));
-                const impSalePrice = Number(item.salePrice !== undefined ? item.salePrice : (item.SalePrice || item.sale_price || item.mrp || 0));
-                const impCategory = item.category || item.Category || 'Other';
-                const impUnit = item.unit || item.Unit || 'Pcs';
-                const impHsn = item.hsn || item.HSN || '';
-                const impBatch = item.batch || item.Batch || '';
-                const impExpiry = item.expiry || item.Expiry || '';
-                const impGst = Number(item.gst !== undefined ? item.gst : (item.GST || 12));
-
-                if (existing) {
-                    // Update existing: ADD quantity to current stock
-                    existing.stock = Number(existing.stock || 0) + impQty;
-                    if (impMrp > 0) existing.mrp = impMrp;
-                    if (impSalePrice > 0) existing.salePrice = impSalePrice;
-                    if (impHsn) existing.hsn = impHsn;
-                    if (impBatch) existing.batch = impBatch;
-                    if (impExpiry) existing.expiry = impExpiry;
-                    updatedExistingCount++;
-                } else {
-                    // Add new product
-                    const newId = item.id || ('P' + String(products.length + 1).padStart(2, '0'));
-                    products.push({
-                        id: newId,
-                        name: name,
-                        category: impCategory,
-                        unit: impUnit,
-                        hsn: impHsn,
-                        batch: impBatch,
-                        expiry: impExpiry,
-                        mrp: impMrp,
-                        salePrice: impSalePrice,
-                        stock: impQty,
-                        gst: impGst
-                    });
-                    addedNewCount++;
-                }
-            });
-
-            localStorage.setItem('mediflow_products', JSON.stringify(products));
-            syncToCloud('products', products);
-
-            if (typeof renderProducts === 'function') renderProducts();
-            if (typeof renderProductDropdown === 'function') renderProductDropdown();
-
-            alert(`Product Import Complete!\n\n- Updated Existing Products (Added Stock): ${updatedExistingCount}\n- New Products Added: ${addedNewCount}\n- Total Active Inventory: ${products.length} items`);
-        } catch (err) {
-            console.error(err);
-            alert('Failed to import file. Please check file format and try again.');
-        }
-    };
-
-    reader.readAsText(file);
+    if (!file) return;
+    const fakeEvent = { target: { files: [file], value: '' } };
+    if (typeof importProducts === 'function') {
+        importProducts(fakeEvent);
+    }
 }
 
 function parseProductsCSV(csvText) {
