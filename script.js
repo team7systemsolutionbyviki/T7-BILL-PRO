@@ -6074,7 +6074,7 @@ function openAdminLoginFromCustomerView() {
 }
 
 function openMenuOrderCheckoutModal() {
-    if (!cart || cart.length === 0) {
+    if (!menuOrderCart || menuOrderCart.length === 0) {
         alert('Your digital cart is empty. Please add items to place an order.');
         return;
     }
@@ -6082,8 +6082,8 @@ function openMenuOrderCheckoutModal() {
     const modal = document.getElementById('menu-checkout-modal');
     if (!modal) return;
 
-    const totalQty = cart.reduce((sum, item) => sum + Number(item.quantity || 1), 0);
-    const totalPrice = cart.reduce((sum, item) => sum + (Number(item.quantity || 1) * Number(item.salePrice || item.mrp || 0)), 0);
+    const totalQty = menuOrderCart.reduce((sum, item) => sum + Number(item.qty || 1), 0);
+    const totalPrice = menuOrderCart.reduce((sum, item) => sum + (Number(item.qty || 1) * Number(item.salePrice || item.mrp || 0)), 0);
 
     if (document.getElementById('checkout-item-count')) document.getElementById('checkout-item-count').textContent = totalQty;
     if (document.getElementById('checkout-total-amount')) document.getElementById('checkout-total-amount').textContent = totalPrice.toFixed(2);
@@ -6098,7 +6098,7 @@ function closeMenuOrderCheckoutModal() {
 
 function submitCustomerDigitalOrder(e) {
     e.preventDefault();
-    if (!cart || cart.length === 0) {
+    if (!menuOrderCart || menuOrderCart.length === 0) {
         alert('Cart is empty.');
         return;
     }
@@ -6109,7 +6109,7 @@ function submitCustomerDigitalOrder(e) {
     const notes = document.getElementById('cust-order-notes').value.trim();
 
     const orderRef = 'ORD' + String(Date.now()).slice(-6);
-    const totalPrice = cart.reduce((sum, item) => sum + (Number(item.quantity || 1) * Number(item.salePrice || item.mrp || 0)), 0);
+    const totalPrice = menuOrderCart.reduce((sum, item) => sum + (Number(item.qty || 1) * Number(item.salePrice || item.mrp || 0)), 0);
 
     const digitalOrder = {
         id: orderRef,
@@ -6118,7 +6118,15 @@ function submitCustomerDigitalOrder(e) {
         customerPhone: phone,
         orderType: orderType,
         notes: notes,
-        items: [...cart],
+        items: menuOrderCart.map(item => ({
+            id: item.id,
+            name: item.name,
+            quantity: Number(item.qty || 1),
+            salePrice: Number(item.salePrice || 0),
+            mrp: Number(item.mrp || 0),
+            gst: Number(item.gst || 0),
+            batch: item.batch || ''
+        })),
         totalAmount: totalPrice,
         status: 'Pending',
         createdAt: new Date().toLocaleString()
@@ -6135,7 +6143,7 @@ function submitCustomerDigitalOrder(e) {
     const successModal = document.getElementById('menu-order-success-modal');
     if (successModal) successModal.style.display = 'flex';
 
-    cart = [];
+    menuOrderCart = [];
     if (typeof updateMenuOrderDrawer === 'function') updateMenuOrderDrawer();
     if (typeof renderMenuCard === 'function') renderMenuCard();
 }
