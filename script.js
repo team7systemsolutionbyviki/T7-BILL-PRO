@@ -455,8 +455,14 @@ function applySavedSidebarState() {
 }
 
 function checkLoginStatus() {
-    const isCustomerView = window.location.hash === '#menu-card' || 
-                           window.location.hash === '#menu' ||
+    const branchFromUrl = typeof getBranchIdFromURL === 'function' ? getBranchIdFromURL() : null;
+    if (branchFromUrl) {
+        currentBranchId = branchFromUrl;
+        sessionStorage.setItem('mediflow_current_branch', branchFromUrl);
+    }
+
+    const isCustomerView = window.location.hash.includes('#menu-card') || 
+                           window.location.hash.includes('#menu') ||
                            window.location.search.includes('mode=customer') || 
                            window.location.search.includes('menu=true');
 
@@ -4126,6 +4132,19 @@ function renderBranches() {
             <td><strong>${b.name}</strong></td>
             <td><span class="badge" style="background:#f1f5f9; color:#475569;">${b.id}</span></td>
             <td>${b.location || '-'}</td>
+            <td>
+                <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 0.78rem; color: var(--primary-color); border-color: var(--primary-color);" title="Copy Menu Link" onclick="copyBranchMenuLink('${b.id}')">
+                        <i data-lucide="copy" style="width: 13px;"></i> Copy
+                    </button>
+                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 0.78rem; color: #16a34a; border-color: #16a34a;" title="Share WhatsApp" onclick="shareBranchMenuWhatsApp('${b.id}')">
+                        <i data-lucide="share-2" style="width: 13px;"></i> WhatsApp
+                    </button>
+                    <button class="btn btn-outline" style="padding: 4px 8px; font-size: 0.78rem; color: #0284c7; border-color: #0284c7;" title="Open Menu Card" onclick="openBranchMenuLink('${b.id}')">
+                        <i data-lucide="external-link" style="width: 13px;"></i> Open
+                    </button>
+                </div>
+            </td>
             <td>${amcStatusHtml}</td>
             <td>${statusBadge}</td>
             <td style="text-align: right; display: flex; justify-content: flex-end; gap: 0.5rem;">
@@ -5122,33 +5141,61 @@ window.runAutoLocalBackup = async function() {
 }
 
 // --- Digital Menu Sharing & QR Code ---
-function getDigitalMenuURL() {
-    const currentUrl = window.location.href.split('#')[0];
-    return `${currentUrl}#menu-card`;
+function getBranchIdFromURL() {
+    const href = window.location.href;
+    const match = href.match(/[?&]branch=([^&#]+)/);
+    if (match && match[1]) {
+        return decodeURIComponent(match[1]);
+    }
+    return null;
 }
 
-function shareDigitalMenuWhatsApp() {
-    const shopName = settings.shopName || 'T7 BillPro';
-    const menuUrl = getDigitalMenuURL();
+function getDigitalMenuURL(branchId) {
+    const targetBranch = branchId || (typeof currentBranchId !== 'undefined' && currentBranchId ? currentBranchId : (sessionStorage.getItem('mediflow_current_branch') || 'branch_default'));
+    const baseUrl = window.location.href.split('#')[0].split('?')[0];
+    return `${baseUrl}#menu-card?branch=${encodeURIComponent(targetBranch)}`;
+}
+
+function shareDigitalMenuWhatsApp(branchId) {
+    const targetBranch = branchId || (typeof currentBranchId !== 'undefined' ? currentBranchId : 'branch_default');
+    const branchObj = (typeof branches !== 'undefined' && Array.isArray(branches)) ? branches.find(b => b.id === targetBranch) : null;
+    const shopName = settings.shopName || (branchObj ? branchObj.name : 'T7 BillPro');
+    const menuUrl = getDigitalMenuURL(targetBranch);
     const message = `Hello! Check out our live Digital Catalog & Menu for ${shopName}:\n\n🔗 ${menuUrl}\n\nYou can browse our live stock and place orders directly!`;
     const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
     window.open(whatsappUrl, '_blank');
 }
 
-function copyDigitalMenuLink() {
-    const menuUrl = getDigitalMenuURL();
+function copyDigitalMenuLink(branchId) {
+    const targetBranch = branchId || (typeof currentBranchId !== 'undefined' ? currentBranchId : 'branch_default');
+    const menuUrl = getDigitalMenuURL(targetBranch);
+    const branchObj = (typeof branches !== 'undefined' && Array.isArray(branches)) ? branches.find(b => b.id === targetBranch) : null;
+    const label = branchObj ? branchObj.name : 'Digital Menu';
     if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(menuUrl).then(() => {
-            alert('Digital Menu link copied to clipboard!\n\n' + menuUrl);
+            alert(`Digital Menu link for "${label}" copied to clipboard!\n\n` + menuUrl);
         }).catch(() => {
-            prompt('Copy your Digital Menu Link below:', menuUrl);
+            prompt(`Copy Digital Menu Link for "${label}":`, menuUrl);
         });
     } else {
-        prompt('Copy your Digital Menu Link below:', menuUrl);
+        prompt(`Copy Digital Menu Link for "${label}":`, menuUrl);
     }
 }
 
-function showDigitalMenuQRCode() {
+function copyBranchMenuLink(branchId) {
+    copyDigitalMenuLink(branchId);
+}
+
+function shareBranchMenuWhatsApp(branchId) {
+    shareDigitalMenuWhatsApp(branchId);
+}
+
+function openBranchMenuLink(branchId) {
+    const menuUrl = getDigitalMenuURL(branchId);
+    window.open(menuUrl, '_blank');
+}
+
+function showDigitalMenuQRCode(branchId) {
     const modal = document.getElementById('qr-code-modal');
     const qrImg = document.getElementById('qr-code-img');
     const qrUrlText = document.getElementById('qr-code-url');
@@ -5156,12 +5203,14 @@ function showDigitalMenuQRCode() {
     
     if (!modal) return;
     
-    const menuUrl = getDigitalMenuURL();
+    const targetBranch = branchId || (typeof currentBranchId !== 'undefined' ? currentBranchId : 'branch_default');
+    const branchObj = (typeof branches !== 'undefined' && Array.isArray(branches)) ? branches.find(b => b.id === targetBranch) : null;
+    const menuUrl = getDigitalMenuURL(targetBranch);
     const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(menuUrl)}`;
     
     if (qrImg) qrImg.src = qrApiUrl;
     if (qrUrlText) qrUrlText.textContent = menuUrl;
-    if (shopTitle) shopTitle.textContent = settings.shopName || 'T7 BillPro';
+    if (shopTitle) shopTitle.textContent = settings.shopName || (branchObj ? branchObj.name : 'T7 BillPro');
     
     modal.style.display = 'flex';
     if (typeof lucide !== 'undefined') lucide.createIcons();
@@ -5986,6 +6035,12 @@ function enableCustomerMenuView() {
     isCustomerViewActive = true;
     document.body.classList.add('customer-mode');
     
+    const branchFromUrl = typeof getBranchIdFromURL === 'function' ? getBranchIdFromURL() : null;
+    if (branchFromUrl) {
+        currentBranchId = branchFromUrl;
+        sessionStorage.setItem('mediflow_current_branch', branchFromUrl);
+    }
+
     const loginScreen = document.getElementById('login-screen');
     const appContainer = document.getElementById('app-container');
     
@@ -5998,8 +6053,9 @@ function enableCustomerMenuView() {
     loadBranchData();
 
     // Populate customer header with shop info
+    const currentBranchObj = (typeof branches !== 'undefined' && Array.isArray(branches)) ? branches.find(b => b.id === currentBranchId) : null;
     if (document.getElementById('cust-shop-name')) {
-        document.getElementById('cust-shop-name').textContent = settings.shopName || 'T7 BillPro';
+        document.getElementById('cust-shop-name').textContent = settings.shopName || (currentBranchObj ? currentBranchObj.name : 'T7 BillPro');
     }
     if (document.getElementById('cust-shop-phone')) {
         document.getElementById('cust-shop-phone').textContent = settings.shopAddress ? `${settings.shopAddress} | ${settings.shopPhone || ''}` : (settings.shopPhone || 'Digital Catalog & Menu');
@@ -6107,6 +6163,11 @@ window.closeBranchModal = closeBranchModal;
 window.toggleBranchLock = toggleBranchLock;
 window.changeBranchAMC = changeBranchAMC;
 window.deleteBranch = deleteBranch;
+window.getBranchIdFromURL = getBranchIdFromURL;
+window.getDigitalMenuURL = getDigitalMenuURL;
+window.copyBranchMenuLink = copyBranchMenuLink;
+window.shareBranchMenuWhatsApp = shareBranchMenuWhatsApp;
+window.openBranchMenuLink = openBranchMenuLink;
 
 // --- KOT (Kitchen Order Ticket) Feature ---
 function loadSettingsFields() {
