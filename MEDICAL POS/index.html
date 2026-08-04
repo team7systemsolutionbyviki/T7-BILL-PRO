@@ -124,6 +124,10 @@
                     <i data-lucide="layout-grid"></i>
                     <span class="nav-label">Table Management</span>
                 </button>
+                <button class="nav-item" data-section="doctor-management" id="nav-doctor-mgmt" style="display: none;" title="Doctor Management">
+                    <i data-lucide="stethoscope"></i>
+                    <span class="nav-label">Doctor Management</span>
+                </button>
                 <button class="nav-item" data-section="users" id="nav-users" style="display: none;"
                     title="Shortcut: Alt+A">
                     <i data-lucide="user-cog"></i>
@@ -1123,6 +1127,91 @@
                             <button type="button" class="btn btn-primary" onclick="saveTableEntry()"><i data-lucide="save"></i> Save Table</button>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- Doctor Management Section -->
+            <section id="doctor-management" class="page-section">
+                <div class="card" style="margin-bottom: 1.5rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+                        <div>
+                            <h3 style="margin-bottom: 0.25rem;"><i data-lucide="stethoscope" style="vertical-align: middle; color: var(--primary-color);"></i> Doctor Management System</h3>
+                            <p style="color: var(--text-muted); font-size: 0.88rem;">Manage prescribing doctors, track prescriptions, view Doctor-wise Sales Reports and calculate commissions.</p>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                            <button class="btn btn-primary" onclick="openAddDoctorModal()">
+                                <i data-lucide="user-plus"></i> Add New Doctor
+                            </button>
+                            <button class="btn btn-secondary" onclick="viewDoctorSalesReport()">
+                                <i data-lucide="bar-chart-2"></i> Doctor-wise Sales Report
+                            </button>
+                            <button class="btn btn-outline" onclick="renderDoctorManagement()">
+                                <i data-lucide="refresh-cw"></i> Refresh
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Doctor List Card -->
+                <div class="card">
+                    <h4 style="margin-bottom: 1rem; color: var(--primary-color);"><i data-lucide="users" style="vertical-align: middle;"></i> Registered Prescribing Doctors</h4>
+                    <div class="table-responsive">
+                        <table class="table" id="doctor-list-table">
+                            <thead>
+                                <tr>
+                                    <th>Doctor Name</th>
+                                    <th>Specialty / Qualification</th>
+                                    <th>Phone / Mobile</th>
+                                    <th>Hospital / Clinic</th>
+                                    <th style="text-align: center;">Prescriptions Count</th>
+                                    <th style="text-align: right;">Total Sales Revenue</th>
+                                    <th style="text-align: right;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="doctor-list-tbody">
+                                <tr><td colspan="7" style="text-align: center; padding: 20px; color: var(--text-muted);">No doctor profiles created yet. Click "Add New Doctor" to get started.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Add / Edit Doctor Modal -->
+            <div id="doctor-modal" class="modal-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); z-index: 99999; align-items: center; justify-content: center;">
+                <div class="modal" style="max-width: 500px; width: 95%; background: var(--card-bg); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3);">
+                    <div class="modal-header" style="background: var(--bg-color); border-bottom: 1px solid var(--border-color); padding: 1.25rem; display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0;"><i data-lucide="stethoscope"></i> <span id="doctor-modal-title">Add Doctor Profile</span></h3>
+                        <button type="button" class="close-btn" onclick="closeDoctorModal()">&times;</button>
+                    </div>
+                    <form id="doctor-form" onsubmit="saveDoctor(event)">
+                        <div class="modal-body" style="padding: 1.5rem;">
+                            <input type="hidden" id="edit-doc-id" value="">
+                            <div class="form-group">
+                                <label>Doctor / Prescriber Name *</label>
+                                <input type="text" id="doc-name-input" class="form-control" required placeholder="e.g. Dr. A. K. Sharma">
+                            </div>
+                            <div class="form-group">
+                                <label>Specialty / Qualification</label>
+                                <input type="text" id="doc-specialty-input" class="form-control" placeholder="e.g. MBBS, MD (Cardiology)">
+                            </div>
+                            <div class="form-group">
+                                <label>Phone / Mobile Number</label>
+                                <input type="text" id="doc-phone-input" class="form-control" placeholder="e.g. +91 98765 43210">
+                            </div>
+                            <div class="form-group">
+                                <label>Hospital / Clinic Name</label>
+                                <input type="text" id="doc-clinic-input" class="form-control" placeholder="e.g. City Multi-Specialty Clinic">
+                            </div>
+                            <div class="form-group">
+                                <label>Commission (%) (Optional)</label>
+                                <input type="number" id="doc-commission-input" class="form-control" placeholder="e.g. 5" step="0.1" min="0" max="100">
+                            </div>
+                            <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 1.5rem;">
+                                <button type="button" class="btn btn-outline" onclick="closeDoctorModal()">Cancel</button>
+                                <button type="submit" class="btn btn-primary"><i data-lucide="save"></i> Save Doctor Profile</button>
+                            </div>
+                        </div>
+                    </form>
                 </div>
             </div>
 

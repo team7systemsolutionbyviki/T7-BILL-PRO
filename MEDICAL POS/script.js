@@ -19,9 +19,10 @@ if (branches.length === 0) {
         });
     }
 }
+let doctorsList = [];
 
 // Storage Interceptors for Multi-Branch
-const branchSpecificKeys = ['mediflow_products', 'mediflow_sales', 'mediflow_settings', 'mediflow_purchases', 'mediflow_expenses', 'mediflow_categories', 'mediflow_expense_categories', 'mediflow_customers', 'mediflow_customer_payments', 'mediflow_suppliers', 'mediflow_supplier_payments', 'mediflow_held_carts', 'mediflow_amc', 'mediflow_staff', 'mediflow_attendance', 'mediflow_staff_advances', 'mediflow_salary_payments', 'mediflow_digital_orders'];
+const branchSpecificKeys = ['mediflow_products', 'mediflow_sales', 'mediflow_settings', 'mediflow_purchases', 'mediflow_expenses', 'mediflow_categories', 'mediflow_expense_categories', 'mediflow_customers', 'mediflow_customer_payments', 'mediflow_suppliers', 'mediflow_supplier_payments', 'mediflow_held_carts', 'mediflow_amc', 'mediflow_staff', 'mediflow_attendance', 'mediflow_staff_advances', 'mediflow_salary_payments', 'mediflow_digital_orders', 'mediflow_doctors'];
 
 const originalGetItem = localStorage.getItem;
 const originalSetItem = localStorage.setItem;
@@ -140,6 +141,7 @@ function loadBranchData() {
     attendanceLogs = JSON.parse(localStorage.getItem('mediflow_attendance')) || [];
     staffAdvances = JSON.parse(localStorage.getItem('mediflow_staff_advances')) || [];
     salaryPayments = JSON.parse(localStorage.getItem('mediflow_salary_payments')) || [];
+    doctorsList = JSON.parse(localStorage.getItem('mediflow_doctors')) || [];
     cart = [];
     if (typeof renderBarcodeProductOptions === 'function') renderBarcodeProductOptions();
 }
@@ -1041,6 +1043,9 @@ function switchSection(sectionId) {
     }
     if (sectionId === 'table-management') {
         if (typeof renderTableManagement === 'function') renderTableManagement();
+    }
+    if (sectionId === 'doctor-management') {
+        if (typeof renderDoctorManagement === 'function') renderDoctorManagement();
     }
     if (sectionId === 'digital-orders') {
         renderDigitalOrders();
@@ -6563,6 +6568,9 @@ function loadSettingsFields() {
     const navDigitalOrders = document.querySelector('.nav-item[data-section="digital-orders"]');
     if (navDigitalOrders) navDigitalOrders.style.display = (settings.enableDigitalOrders !== false) ? 'flex' : 'none';
 
+    const navDoctorMgmt = document.getElementById('nav-doctor-mgmt');
+    if (navDoctorMgmt) navDoctorMgmt.style.display = (settings.enableDoctorSelect !== false) ? 'flex' : 'none';
+
     if (typeof renderSuperAdminSettingsPermissions === 'function') renderSuperAdminSettingsPermissions();
     if (typeof applyBranchSettingsPermissions === 'function') applyBranchSettingsPermissions();
 }
@@ -7147,6 +7155,12 @@ function renderBillingDoctorOptions() {
     datalist.innerHTML = '';
     const doctorSet = new Set();
 
+    (doctorsList || []).forEach(d => {
+        if (d && d.name && d.name.trim()) {
+            doctorSet.add(d.name.trim());
+        }
+    });
+
     (sales || []).forEach(s => {
         if (s.doctorName && s.doctorName.trim()) {
             doctorSet.add(s.doctorName.trim());
@@ -7687,10 +7701,14 @@ function applyBranchSettingsPermissions() {
         document.getElementById('set-enable-waiter').disabled = !waiterAllowed;
     }
 
-    // Doctor Selection Toggle
+    // Doctor Selection Toggle & Nav
+    const doctorAllowed = (perms.editDoctor !== undefined ? perms.editDoctor : perms.editWaiterDoctor) !== false;
     if (document.getElementById('set-enable-doctor')) {
-        const doctorAllowed = perms.editDoctor !== undefined ? perms.editDoctor : perms.editWaiterDoctor;
         document.getElementById('set-enable-doctor').disabled = !doctorAllowed;
+    }
+    const navDoctorMgmt = document.getElementById('nav-doctor-mgmt');
+    if (navDoctorMgmt) {
+        navDoctorMgmt.style.display = (doctorAllowed && (settings.enableDoctorSelect !== false)) ? 'flex' : 'none';
     }
 
     // Menu Card Toggle & Nav
@@ -8098,4 +8116,156 @@ window.saveTableEntry = saveTableEntry;
 window.editTableEntry = editTableEntry;
 window.deleteTableEntry = deleteTableEntry;
 window.setTableStatus = setTableStatus;
+
+// --- Doctor Management System ---
+function renderDoctorManagement() {
+    const tbody = document.getElementById('doctor-list-tbody');
+    if (!tbody) return;
+
+    if (!doctorsList || doctorsList.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 20px; color: var(--text-muted);">No doctor profiles created yet. Click "Add New Doctor" to get started.</td></tr>`;
+        return;
+    }
+
+    // Calculate prescriptions count and revenue per doctor from sales
+    const doctorStatsMap = {};
+    (sales || []).forEach(sale => {
+        if (sale.doctorName && sale.doctorName.trim()) {
+            const dName = sale.doctorName.trim();
+            if (!doctorStatsMap[dName]) {
+                doctorStatsMap[dName] = { count: 0, revenue: 0 };
+            }
+            doctorStatsMap[dName].count += 1;
+            doctorStatsMap[dName].revenue += Number(sale.grandTotal || 0);
+        }
+    });
+
+    tbody.innerHTML = doctorsList.map(doc => {
+        const stats = doctorStatsMap[doc.name.trim()] || { count: 0, revenue: 0 };
+        return `
+            <tr>
+                <td><strong>${escapeHtml(doc.name)}</strong></td>
+                <td>${escapeHtml(doc.specialty || 'General Physician')}</td>
+                <td>${escapeHtml(doc.phone || 'N/A')}</td>
+                <td>${escapeHtml(doc.clinic || 'N/A')}</td>
+                <td style="text-align: center;"><span class="badge" style="background: var(--primary-light); color: var(--primary-color); font-weight: bold;">${stats.count} Bills</span></td>
+                <td style="text-align: right; font-weight: bold; color: var(--success-color);">${formatCurrency(stats.revenue)}</td>
+                <td style="text-align: right;">
+                    <div style="display: flex; gap: 5px; justify-content: flex-end;">
+                        <button class="btn btn-outline" onclick="editDoctor('${doc.id}')" style="padding: 4px 8px; color: var(--primary-color);" title="Edit"><i data-lucide="edit-2" style="width: 14px;"></i> Edit</button>
+                        <button class="btn btn-outline" onclick="deleteDoctor('${doc.id}')" style="padding: 4px 8px; color: var(--danger-color);" title="Delete"><i data-lucide="trash" style="width: 14px;"></i> Delete</button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function openAddDoctorModal() {
+    document.getElementById('edit-doc-id').value = '';
+    const modalTitle = document.getElementById('doctor-modal-title');
+    if (modalTitle) modalTitle.textContent = 'Add Doctor Profile';
+    document.getElementById('doc-name-input').value = '';
+    document.getElementById('doc-specialty-input').value = '';
+    document.getElementById('doc-phone-input').value = '';
+    document.getElementById('doc-clinic-input').value = '';
+    document.getElementById('doc-commission-input').value = '';
+    
+    const modal = document.getElementById('doctor-modal');
+    if (modal) modal.style.display = 'flex';
+}
+
+function closeDoctorModal() {
+    const modal = document.getElementById('doctor-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+function saveDoctor(e) {
+    if (e) e.preventDefault();
+    const editId = document.getElementById('edit-doc-id').value;
+    const name = document.getElementById('doc-name-input').value.trim();
+    const specialty = document.getElementById('doc-specialty-input').value.trim();
+    const phone = document.getElementById('doc-phone-input').value.trim();
+    const clinic = document.getElementById('doc-clinic-input').value.trim();
+    const commission = Number(document.getElementById('doc-commission-input').value) || 0;
+
+    if (!name) {
+        alert('Please enter Doctor Name');
+        return;
+    }
+
+    if (editId) {
+        const doc = doctorsList.find(d => d.id === editId);
+        if (doc) {
+            doc.name = name;
+            doc.specialty = specialty;
+            doc.phone = phone;
+            doc.clinic = clinic;
+            doc.commission = commission;
+        }
+        alert('Doctor profile updated successfully!');
+    } else {
+        doctorsList.push({
+            id: 'DOC_' + Date.now(),
+            name: name,
+            specialty: specialty,
+            phone: phone,
+            clinic: clinic,
+            commission: commission,
+            createdAt: new Date().toISOString()
+        });
+        alert('Doctor profile added successfully!');
+    }
+
+    localStorage.setItem('mediflow_doctors', JSON.stringify(doctorsList));
+    closeDoctorModal();
+    renderDoctorManagement();
+    if (typeof renderBillingDoctorOptions === 'function') renderBillingDoctorOptions();
+}
+
+function editDoctor(id) {
+    const doc = doctorsList.find(d => d.id === id);
+    if (!doc) return;
+
+    document.getElementById('edit-doc-id').value = doc.id;
+    const modalTitle = document.getElementById('doctor-modal-title');
+    if (modalTitle) modalTitle.textContent = 'Edit Doctor Profile';
+    document.getElementById('doc-name-input').value = doc.name || '';
+    document.getElementById('doc-specialty-input').value = doc.specialty || '';
+    document.getElementById('doc-phone-input').value = doc.phone || '';
+    document.getElementById('doc-clinic-input').value = doc.clinic || '';
+    document.getElementById('doc-commission-input').value = doc.commission || '';
+
+    const modal = document.getElementById('doctor-modal');
+    if (modal) modal.style.display = 'flex';
+}
+
+function deleteDoctor(id) {
+    if (confirm('Are you sure you want to delete this Doctor profile?')) {
+        doctorsList = doctorsList.filter(d => d.id !== id);
+        localStorage.setItem('mediflow_doctors', JSON.stringify(doctorsList));
+        renderDoctorManagement();
+        if (typeof renderBillingDoctorOptions === 'function') renderBillingDoctorOptions();
+    }
+}
+
+function viewDoctorSalesReport() {
+    const navReports = document.querySelector('.nav-item[data-section="reports"]');
+    if (navReports) navReports.click();
+    const reportTypeSelect = document.getElementById('report-type');
+    if (reportTypeSelect) {
+        reportTypeSelect.value = 'doctor_sales';
+        if (typeof generateReport === 'function') generateReport();
+    }
+}
+
+window.renderDoctorManagement = renderDoctorManagement;
+window.openAddDoctorModal = openAddDoctorModal;
+window.closeDoctorModal = closeDoctorModal;
+window.saveDoctor = saveDoctor;
+window.editDoctor = editDoctor;
+window.deleteDoctor = deleteDoctor;
+window.viewDoctorSalesReport = viewDoctorSalesReport;
 
