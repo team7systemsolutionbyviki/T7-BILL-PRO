@@ -1008,7 +1008,8 @@
                                 <tr>
                                     <th>Username</th>
                                     <th>Role</th>
-                                    <th>Action</th>
+                                    <th>Password</th>
+                                    <th style="text-align: right;">Action</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -2253,8 +2254,13 @@
                     </div>
                     <div class="form-group">
                         <label>Password</label>
-                        <input type="password" id="admin-pass" class="form-control" required placeholder="••••••••"
-                            autocomplete="new-password">
+                        <div style="position: relative; display: flex; align-items: center;">
+                            <input type="password" id="admin-pass" class="form-control" required placeholder="••••••••"
+                                autocomplete="new-password" style="padding-right: 40px;">
+                            <button type="button" onclick="toggleAdminModalPassVisibility()" style="position: absolute; right: 8px; background: none; border: none; cursor: pointer; color: var(--text-muted); display: flex; align-items: center; padding: 4px;" title="Toggle Show/Hide Password">
+                                <i data-lucide="eye" id="admin-modal-pass-icon" style="width: 18px; height: 18px;"></i>
+                            </button>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label>Role</label>

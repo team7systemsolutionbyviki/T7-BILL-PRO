@@ -4362,13 +4362,14 @@ function renderAdmins() {
     trSuper.innerHTML = `
         <td><strong>VIKI</strong></td>
         <td><span class="badge" style="background: var(--warning-color); color: white;">Super Admin</span></td>
-        <td><span style="font-size: 0.8rem; color: var(--text-muted);">Has access to all branches</span></td>
+        <td><span style="font-size: 0.8rem; color: var(--text-muted);">Protected (Master)</span></td>
+        <td style="text-align: right;"><span style="font-size: 0.8rem; color: var(--text-muted);">Has access to all branches</span></td>
     `;
     tbody.appendChild(trSuper);
 
     if (admins.length === 0) {
         const emptyTr = document.createElement('tr');
-        emptyTr.innerHTML = '<td colspan="3" style="text-align: center; padding: 1.5rem; color: var(--text-muted);">No additional staff or admin accounts found. Click "Create New User" to add one.</td>';
+        emptyTr.innerHTML = '<td colspan="4" style="text-align: center; padding: 1.5rem; color: var(--text-muted);">No additional staff or admin accounts found. Click "Create New User" to add one.</td>';
         tbody.appendChild(emptyTr);
     } else {
         admins.forEach(a => {
@@ -4376,12 +4377,21 @@ function renderAdmins() {
             const badgeStyle = a.role === 'admin' ? 'background: var(--primary-light); color: var(--primary-color);' : 'background: #e2e8f0; color: #475569;';
             const displayRole = a.role === 'admin' ? 'Admin' : 'Staff';
             const branchName = branches.find(b => b.id === a.branchId)?.name || 'Unknown Branch';
+            const escapedPass = escapeHtml(a.password || '');
             
             tr.innerHTML = `
-                <td>${a.username} <div style="font-size: 0.75rem; color: var(--text-muted);">${branchName}</div></td>
+                <td>${escapeHtml(a.username)} <div style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(branchName)}</div></td>
                 <td><span class="badge" style="${badgeStyle}">${displayRole}</span></td>
                 <td>
-                    <div style="display: flex; gap: 5px;">
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <span id="pass-display-${a.id}" style="font-family: monospace; font-weight: 600; font-size: 0.9rem;">••••••••</span>
+                        <button class="btn btn-outline" onclick="toggleAdminTablePassVisibility('${a.id}', '${escapedPass}')" style="padding: 3px 6px; font-size: 0.75rem;" title="Show/Hide Password">
+                            <i data-lucide="eye" id="pass-icon-${a.id}" style="width: 13px; height: 13px;"></i> <span id="pass-lbl-${a.id}">Show</span>
+                        </button>
+                    </div>
+                </td>
+                <td style="text-align: right;">
+                    <div style="display: flex; gap: 5px; justify-content: flex-end;">
                         <button class="btn btn-outline" onclick="editAdmin('${a.id}')" style="padding: 5px; color: var(--primary-color);" title="Edit"><i data-lucide="edit-2" style="width: 14px;"></i></button>
                         <button class="btn btn-outline" onclick="deleteAdmin('${a.id}')" style="padding: 5px; color: var(--danger-color);" title="Delete"><i data-lucide="trash" style="width: 14px;"></i></button>
                     </div>
@@ -4392,6 +4402,43 @@ function renderAdmins() {
     }
     if (typeof lucide !== 'undefined') lucide.createIcons();
 }
+
+function toggleAdminModalPassVisibility() {
+    const input = document.getElementById('admin-pass');
+    const icon = document.getElementById('admin-modal-pass-icon');
+    if (!input) return;
+    if (input.type === 'password') {
+        input.type = 'text';
+        if (icon) icon.setAttribute('data-lucide', 'eye-off');
+    } else {
+        input.type = 'password';
+        if (icon) icon.setAttribute('data-lucide', 'eye');
+    }
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function toggleAdminTablePassVisibility(adminId, rawPass) {
+    const passSpan = document.getElementById(`pass-display-${adminId}`);
+    const passLbl = document.getElementById(`pass-lbl-${adminId}`);
+    const passIcon = document.getElementById(`pass-icon-${adminId}`);
+    if (!passSpan) return;
+
+    if (passSpan.getAttribute('data-shown') === 'true') {
+        passSpan.textContent = '••••••••';
+        passSpan.removeAttribute('data-shown');
+        if (passLbl) passLbl.textContent = 'Show';
+        if (passIcon) passIcon.setAttribute('data-lucide', 'eye');
+    } else {
+        passSpan.textContent = rawPass || '---';
+        passSpan.setAttribute('data-shown', 'true');
+        if (passLbl) passLbl.textContent = 'Hide';
+        if (passIcon) passIcon.setAttribute('data-lucide', 'eye-off');
+    }
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+window.toggleAdminModalPassVisibility = toggleAdminModalPassVisibility;
+window.toggleAdminTablePassVisibility = toggleAdminTablePassVisibility;
 
 function deleteAdmin(id) {
     if (sessionStorage.getItem('mediflow_user') !== 'VIKI') {
