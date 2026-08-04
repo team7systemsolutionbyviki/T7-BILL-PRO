@@ -1421,6 +1421,7 @@ function setupEventListeners() {
             enableTableMgmt: document.getElementById('set-enable-table-mgmt') ? document.getElementById('set-enable-table-mgmt').checked : false,
             enableMenuCard: document.getElementById('set-enable-menu-card') ? document.getElementById('set-enable-menu-card').checked : true,
             enableDigitalOrders: document.getElementById('set-enable-digital-orders') ? document.getElementById('set-enable-digital-orders').checked : true,
+            printMode: document.getElementById('set-print-mode') ? document.getElementById('set-print-mode').value : 'preview',
             currency: document.getElementById('set-currency').value
         };
         localStorage.setItem('mediflow_settings', JSON.stringify(settings));
@@ -2912,6 +2913,15 @@ function printBill(sale) {
         }, 150);
     };
 
+    const triggerPrint = () => {
+        const isPreviewMode = (settings.printMode || 'preview') === 'preview';
+        if (isPreviewMode) {
+            openPrintPreviewModal(bill.innerHTML, executePrint);
+        } else {
+            executePrint();
+        }
+    };
+
     const qrPlaceholder = document.getElementById('bill-qr-placeholder');
     const qrImg = document.getElementById('bill-qr-img');
     if (qrPlaceholder && qrImg) {
@@ -2920,8 +2930,8 @@ function printBill(sale) {
             const upiString = `upi://pay?pa=${settings.shopUpi.trim()}&pn=${encodeURIComponent(settings.shopName)}&am=${sale.grandTotal.toFixed(2)}`;
             const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(upiString)}`;
             
-            qrImg.onload = executePrint;
-            qrImg.onerror = executePrint;
+            qrImg.onload = triggerPrint;
+            qrImg.onerror = triggerPrint;
             
             qrImg.src = qrUrl;
             qrImg.style.display = 'inline-block';
@@ -2929,10 +2939,10 @@ function printBill(sale) {
         } else {
             qrImg.style.display = 'none';
             qrPlaceholder.style.display = 'inline-flex';
-            executePrint();
+            triggerPrint();
         }
     } else {
-        executePrint();
+        triggerPrint();
     }
     } catch (err) {
         alert("Print error: " + err.message);
@@ -6522,7 +6532,10 @@ function loadSettingsFields() {
     if (document.getElementById('set-enable-table-mgmt')) document.getElementById('set-enable-table-mgmt').checked = !!settings.enableTableMgmt;
     if (document.getElementById('set-enable-menu-card')) document.getElementById('set-enable-menu-card').checked = (settings.enableMenuCard !== false);
     if (document.getElementById('set-enable-digital-orders')) document.getElementById('set-enable-digital-orders').checked = (settings.enableDigitalOrders !== false);
+    if (document.getElementById('set-print-mode')) document.getElementById('set-print-mode').value = settings.printMode || 'preview';
     if (document.getElementById('set-currency')) document.getElementById('set-currency').value = settings.currency || '₹';
+
+    updatePrintModeUI();
 
     const kotBtn = document.getElementById('print-kot-btn');
     if (kotBtn) kotBtn.style.display = (settings.kotEnabled !== false) ? 'inline-flex' : 'none';
@@ -6536,6 +6549,67 @@ function loadSettingsFields() {
     if (typeof renderSuperAdminSettingsPermissions === 'function') renderSuperAdminSettingsPermissions();
     if (typeof applyBranchSettingsPermissions === 'function') applyBranchSettingsPermissions();
 }
+
+// --- Print Preview & Mode Management ---
+let pendingPrintCallback = null;
+
+function togglePrintMode() {
+    settings.printMode = (settings.printMode === 'silent') ? 'preview' : 'silent';
+    localStorage.setItem('mediflow_settings', JSON.stringify(settings));
+    updatePrintModeUI();
+    if (typeof showMenuToast === 'function') {
+        showMenuToast(`Print Mode set to: ${settings.printMode === 'silent' ? '⚡ Silent Direct Print' : '👁️ Show Print Preview'}`);
+    }
+}
+
+function onPrintModeSettingChange(val) {
+    settings.printMode = val || 'preview';
+    localStorage.setItem('mediflow_settings', JSON.stringify(settings));
+    updatePrintModeUI();
+}
+
+function updatePrintModeUI() {
+    const isSilent = (settings.printMode === 'silent');
+    const label = document.getElementById('print-mode-label');
+    const btn = document.getElementById('btn-toggle-print-mode');
+    const select = document.getElementById('set-print-mode');
+
+    if (label) label.textContent = isSilent ? 'Silent Print' : 'Preview Mode';
+    if (btn) {
+        btn.style.borderColor = isSilent ? '#16a34a' : '#0284c7';
+        btn.style.color = isSilent ? '#16a34a' : '#0284c7';
+        btn.title = isSilent ? 'Silent Print ON: Direct printing without on-screen preview modal' : 'Preview Mode ON: Shows on-screen receipt preview modal before printing';
+    }
+    if (select) select.value = isSilent ? 'silent' : 'preview';
+}
+
+function openPrintPreviewModal(billHtml, printCallback) {
+    pendingPrintCallback = printCallback;
+    const modal = document.getElementById('modal-print-preview');
+    const container = document.getElementById('print-preview-container');
+    if (container) container.innerHTML = billHtml;
+    if (modal) modal.style.display = 'flex';
+}
+
+function closePrintPreviewModal() {
+    const modal = document.getElementById('modal-print-preview');
+    if (modal) modal.style.display = 'none';
+    pendingPrintCallback = null;
+}
+
+function confirmPrintFromPreview() {
+    const callback = pendingPrintCallback;
+    closePrintPreviewModal();
+    if (typeof callback === 'function') {
+        callback();
+    }
+}
+
+window.togglePrintMode = togglePrintMode;
+window.onPrintModeSettingChange = onPrintModeSettingChange;
+window.openPrintPreviewModal = openPrintPreviewModal;
+window.closePrintPreviewModal = closePrintPreviewModal;
+window.confirmPrintFromPreview = confirmPrintFromPreview;
 
 function printKOT() {
     if (!cart || cart.length === 0) {

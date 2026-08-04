@@ -310,6 +310,9 @@
                             <button class="btn btn-outline" id="clear-cart-btn">
                                 <i data-lucide="trash-2"></i> Clear Cart <span class="shortcut-key">Alt+X</span>
                             </button>
+                            <button class="btn btn-outline" id="btn-toggle-print-mode" onclick="togglePrintMode()" title="Click to toggle between Print Preview and Silent Direct Printing" style="border-color: #0284c7; color: #0284c7;">
+                                <i data-lucide="printer"></i> <span id="print-mode-label">Preview Mode</span>
+                            </button>
                         </div>
 
                         <!-- Cart Tabs Section -->
@@ -1543,6 +1546,14 @@
                                         <option value="3">3 Copies (Customer + Counter + Kitchen)</option>
                                         <option value="4">4 Copies</option>
                                     </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Print Mode (Preview vs Silent Direct Print)</label>
+                                    <select id="set-print-mode" class="form-control" onchange="onPrintModeSettingChange(this.value)">
+                                        <option value="preview">Show Print Preview Modal (Preview First)</option>
+                                        <option value="silent">Silent Direct Print (Instant Fast Print)</option>
+                                    </select>
+                                    <small style="color: var(--text-muted);">Choose whether to view an on-screen bill preview modal before printing or print directly.</small>
                                 </div>
                                 <div class="form-group">
                                     <label>GST Configuration</label>
@@ -2918,6 +2929,27 @@
                             </button>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Invoice Print Preview Modal -->
+        <div id="modal-print-preview" class="modal" style="display: none; z-index: 1100; align-items: center; justify-content: center; background: rgba(0,0,0,0.6);">
+            <div class="modal-content" style="max-width: 460px; width: 90%; max-height: 90vh; display: flex; flex-direction: column; padding: 1.5rem; border-radius: 12px; background: var(--card-bg);">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-bottom: 15px;">
+                    <h3 style="margin: 0; display: flex; align-items: center; gap: 8px; font-size: 1.15rem; color: var(--primary-color);">
+                        <i data-lucide="printer"></i> Invoice Print Preview
+                    </h3>
+                    <button class="close-modal" onclick="closePrintPreviewModal()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted);">&times;</button>
+                </div>
+                <div id="print-preview-container" style="flex: 1; overflow-y: auto; background: #ffffff; color: #000000; padding: 15px; border: 1px solid var(--border-color); border-radius: 8px; margin-bottom: 15px; display: flex; justify-content: center;">
+                    <!-- Thermal Bill preview injected dynamically -->
+                </div>
+                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <button type="button" class="btn btn-outline" onclick="closePrintPreviewModal()">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="btn-modal-do-print" onclick="confirmPrintFromPreview()">
+                        <i data-lucide="printer"></i> Print Receipt
+                    </button>
                 </div>
             </div>
         </div>
