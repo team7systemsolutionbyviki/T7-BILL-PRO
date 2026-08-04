@@ -1419,6 +1419,8 @@ function setupEventListeners() {
             enableWaiterSelect: document.getElementById('set-enable-waiter') ? document.getElementById('set-enable-waiter').checked : false,
             enableDoctorSelect: document.getElementById('set-enable-doctor') ? document.getElementById('set-enable-doctor').checked : false,
             enableTableMgmt: document.getElementById('set-enable-table-mgmt') ? document.getElementById('set-enable-table-mgmt').checked : false,
+            enableMenuCard: document.getElementById('set-enable-menu-card') ? document.getElementById('set-enable-menu-card').checked : true,
+            enableDigitalOrders: document.getElementById('set-enable-digital-orders') ? document.getElementById('set-enable-digital-orders').checked : true,
             currency: document.getElementById('set-currency').value
         };
         localStorage.setItem('mediflow_settings', JSON.stringify(settings));
@@ -5226,32 +5228,61 @@ function generateReport() {
     } else if (type.startsWith('sales_')) {
         let titleMap = {
             'sales_all': 'Total Sales Report',
+            'sales_product': 'Sales Product List Report',
             'sales_cash': 'Cash Sales Report',
             'sales_gpay': 'GPay Sales Report',
             'sales_credit': 'Customer Credit Report'
         };
-        title.textContent = titleMap[type] + ` (${start} to ${end})`;
-        htmlHead = `<tr><th>Date</th><th>Invoice</th><th>Customer</th><th>Payment</th><th>Items</th><th>Total</th></tr>`;
+        title.textContent = (titleMap[type] || 'Sales Report') + ` (${start} to ${end})`;
         
         let filteredSales = sales.filter(s => isDateInRange(s.date) && !s.isReturn);
-        
-        if (type === 'sales_cash') filteredSales = filteredSales.filter(s => s.paymentMode === 'Cash');
-        else if (type === 'sales_gpay') filteredSales = filteredSales.filter(s => s.paymentMode === 'GPay');
-        else if (type === 'sales_credit') filteredSales = filteredSales.filter(s => s.paymentMode === 'Credit');
-        
-        filteredSales.forEach(s => {
-            totalValue += parseFloat(s.grandTotal) || 0;
-            totalItems++;
-            htmlBody += `<tr>
-                <td>${new Date(s.date).toLocaleDateString()}</td>
-                <td>${s.invoiceNo}</td>
-                <td>${s.customer ? s.customer.name : 'Cash'}</td>
-                <td>${s.paymentMode}</td>
-                <td>${s.items ? s.items.length : 0}</td>
-                <td>${settings.currency}${(parseFloat(s.grandTotal)||0).toFixed(2)}</td>
-            </tr>`;
-        });
-        htmlFoot = `<tr><td colspan="5" style="text-align: right;">Total Sales Amount:</td><td>${settings.currency}${totalValue.toFixed(2)}</td></tr>`;
+
+        if (type === 'sales_product') {
+            htmlHead = `<tr><th>Product Name</th><th>Category</th><th>Qty Sold</th><th>Bills Count</th><th>Total Revenue</th></tr>`;
+            const prodMap = {};
+            filteredSales.forEach(s => {
+                (s.items || []).forEach(i => {
+                    const key = i.id || i.name || 'Unknown';
+                    if (!prodMap[key]) prodMap[key] = { name: i.name || 'Unknown', category: i.category || 'General', qty: 0, bills: 0, total: 0 };
+                    const q = Number(i.qty || 0);
+                    const pr = Number(i.salePrice || i.price || i.mrp || 0);
+                    prodMap[key].qty += q;
+                    prodMap[key].bills += 1;
+                    prodMap[key].total += Number(i.total || (q * pr));
+                });
+            });
+            Object.values(prodMap).forEach(p => {
+                totalValue += p.total;
+                htmlBody += `<tr>
+                    <td><strong>${escapeHtml(p.name)}</strong></td>
+                    <td>${escapeHtml(p.category)}</td>
+                    <td>${p.qty}</td>
+                    <td>${p.bills}</td>
+                    <td>${settings.currency}${(p.total).toFixed(2)}</td>
+                </tr>`;
+            });
+            htmlFoot = `<tr><td colspan="4" style="text-align: right;">Total Sales Product Revenue:</td><td>${settings.currency}${totalValue.toFixed(2)}</td></tr>`;
+        } else {
+            htmlHead = `<tr><th>Date</th><th>Invoice</th><th>Customer</th><th>Products Sold</th><th>Payment</th><th>Total</th></tr>`;
+            if (type === 'sales_cash') filteredSales = filteredSales.filter(s => s.paymentMode === 'Cash');
+            else if (type === 'sales_gpay') filteredSales = filteredSales.filter(s => s.paymentMode === 'GPay');
+            else if (type === 'sales_credit') filteredSales = filteredSales.filter(s => s.paymentMode === 'Credit');
+            
+            filteredSales.forEach(s => {
+                totalValue += parseFloat(s.grandTotal) || 0;
+                totalItems++;
+                const itemsStr = (s.items && s.items.length > 0) ? s.items.map(i => `${i.name} (x${i.qty})`).join(', ') : '---';
+                htmlBody += `<tr>
+                    <td>${new Date(s.date).toLocaleDateString()}</td>
+                    <td>${s.invoiceNo}</td>
+                    <td>${s.customer ? s.customer.name : 'Cash'}</td>
+                    <td style="max-width: 250px;">${itemsStr}</td>
+                    <td>${s.paymentMode}</td>
+                    <td>${settings.currency}${(parseFloat(s.grandTotal)||0).toFixed(2)}</td>
+                </tr>`;
+            });
+            htmlFoot = `<tr><td colspan="5" style="text-align: right;">Total Sales Amount:</td><td>${settings.currency}${totalValue.toFixed(2)}</td></tr>`;
+        }
     } else if (type === 'purchases') {
         title.textContent = `Purchases Report (${start} to ${end})`;
         htmlHead = `<tr><th>Date</th><th>Invoice</th><th>Supplier</th><th>Item</th><th>Qty</th><th>Cost</th><th>Total</th></tr>`;
@@ -6489,10 +6520,18 @@ function loadSettingsFields() {
     if (document.getElementById('set-enable-waiter')) document.getElementById('set-enable-waiter').checked = !!settings.enableWaiterSelect;
     if (document.getElementById('set-enable-doctor')) document.getElementById('set-enable-doctor').checked = !!settings.enableDoctorSelect;
     if (document.getElementById('set-enable-table-mgmt')) document.getElementById('set-enable-table-mgmt').checked = !!settings.enableTableMgmt;
+    if (document.getElementById('set-enable-menu-card')) document.getElementById('set-enable-menu-card').checked = (settings.enableMenuCard !== false);
+    if (document.getElementById('set-enable-digital-orders')) document.getElementById('set-enable-digital-orders').checked = (settings.enableDigitalOrders !== false);
     if (document.getElementById('set-currency')) document.getElementById('set-currency').value = settings.currency || '₹';
 
     const kotBtn = document.getElementById('print-kot-btn');
     if (kotBtn) kotBtn.style.display = (settings.kotEnabled !== false) ? 'inline-flex' : 'none';
+
+    const navMenuCard = document.querySelector('.nav-item[data-section="menu-card"]');
+    if (navMenuCard) navMenuCard.style.display = (settings.enableMenuCard !== false) ? 'flex' : 'none';
+
+    const navDigitalOrders = document.querySelector('.nav-item[data-section="digital-orders"]');
+    if (navDigitalOrders) navDigitalOrders.style.display = (settings.enableDigitalOrders !== false) ? 'flex' : 'none';
 
     if (typeof renderSuperAdminSettingsPermissions === 'function') renderSuperAdminSettingsPermissions();
     if (typeof applyBranchSettingsPermissions === 'function') applyBranchSettingsPermissions();
@@ -7226,6 +7265,75 @@ function generateReport() {
                 <td>${settings.currency || '₹'}${parseFloat(p.salePrice || 0).toFixed(2)}</td>
             </tr>
         `).join('');
+    } else if (reportType === 'sales_product' || reportType === 'product_sales') {
+        if (tableTitle) tableTitle.textContent = 'Sales Product List (Product-Wise Sales Report)';
+
+        const productSalesMap = {};
+        filteredSales.filter(s => !s.isReturn).forEach(sale => {
+            if (sale.items && Array.isArray(sale.items)) {
+                sale.items.forEach(item => {
+                    const prodKey = item.id || item.name || 'Unknown Product';
+                    if (!productSalesMap[prodKey]) {
+                        productSalesMap[prodKey] = {
+                            id: item.id || '---',
+                            name: item.name || 'Unknown Product',
+                            category: item.category || 'General',
+                            unit: item.unit || item.saleUnit || 'pcs',
+                            qty: 0,
+                            billsCount: 0,
+                            revenue: 0,
+                            unitPrice: item.salePrice || item.price || item.mrp || 0
+                        };
+                    }
+                    const itemQty = Number(item.qty || 0);
+                    const itemPrice = Number(item.salePrice || item.price || item.mrp || 0);
+                    const lineTotal = item.total ? Number(item.total) : (itemQty * itemPrice);
+                    productSalesMap[prodKey].qty += itemQty;
+                    productSalesMap[prodKey].billsCount += 1;
+                    productSalesMap[prodKey].revenue += lineTotal;
+                });
+            }
+        });
+
+        tableHead.innerHTML = `
+            <tr>
+                <th>Product Name</th>
+                <th>Category</th>
+                <th style="text-align: center;">Total Qty Sold</th>
+                <th style="text-align: center;">Bills Count</th>
+                <th style="text-align: right;">Unit Price (${settings.currency || '₹'})</th>
+                <th style="text-align: right;">Total Sales Revenue (${settings.currency || '₹'})</th>
+            </tr>
+        `;
+
+        const summaryList = Object.values(productSalesMap).sort((a, b) => b.revenue - a.revenue);
+        if (summaryList.length === 0) {
+            tableBody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 20px;">No sales products recorded in selected date range.</td></tr>`;
+        } else {
+            let totalQtySum = 0, totalRevenueSum = 0;
+            tableBody.innerHTML = summaryList.map(p => {
+                totalQtySum += p.qty;
+                totalRevenueSum += p.revenue;
+                return `
+                    <tr>
+                        <td><strong>${escapeHtml(p.name)}</strong></td>
+                        <td>${escapeHtml(p.category)}</td>
+                        <td style="text-align: center;">${p.qty} ${escapeHtml(p.unit)}</td>
+                        <td style="text-align: center;">${p.billsCount}</td>
+                        <td style="text-align: right;">${settings.currency || '₹'}${Number(p.unitPrice).toFixed(2)}</td>
+                        <td style="text-align: right; font-weight: bold; color: var(--success-color);">${settings.currency || '₹'}${p.revenue.toFixed(2)}</td>
+                    </tr>
+                `;
+            }).join('') + `
+                <tr style="background: var(--primary-light); font-weight: bold;">
+                    <td colspan="2">TOTAL SALES PRODUCT SUMMARY (${summaryList.length} Unique Products)</td>
+                    <td style="text-align: center;">${totalQtySum}</td>
+                    <td style="text-align: center;">---</td>
+                    <td></td>
+                    <td style="text-align: right; color: var(--primary-color);">${settings.currency || '₹'}${totalRevenueSum.toFixed(2)}</td>
+                </tr>
+            `;
+        }
     } else if (reportType.startsWith('sales_')) {
         const mode = reportType.replace('sales_', '');
         let targetSales = filteredSales;
@@ -7240,6 +7348,7 @@ function generateReport() {
                 <th>Date</th>
                 <th>Customer Name</th>
                 <th>Phone</th>
+                <th>Products / Items Sold</th>
                 <th>Payment Mode</th>
                 <th style="text-align: right;">Amount (${settings.currency || '₹'})</th>
             </tr>
@@ -7248,19 +7357,23 @@ function generateReport() {
         tableBody.innerHTML = targetSales.map(s => {
             const amt = Number(s.grandTotal || 0);
             totalAmt += amt;
+            const itemsSummary = (s.items && s.items.length > 0)
+                ? s.items.map(i => `${escapeHtml(i.name || 'Item')} (x${i.qty || 1})`).join(', ')
+                : '---';
             return `
                 <tr>
                     <td>#${escapeHtml(s.invoiceNo || '---')}</td>
                     <td>${s.date ? new Date(s.date).toLocaleString() : '---'}</td>
                     <td>${escapeHtml(s.customer ? s.customer.name : 'Cash Customer')}</td>
                     <td>${escapeHtml(s.customer ? s.customer.phone : '---')}</td>
+                    <td style="max-width: 250px; font-size: 0.9em; line-height: 1.3;">${itemsSummary}</td>
                     <td><span class="badge">${s.paymentMode || 'Cash'}</span></td>
                     <td style="text-align: right; font-weight: bold;">${settings.currency || '₹'}${amt.toFixed(2)}</td>
                 </tr>
             `;
         }).join('') + `
             <tr style="background: var(--primary-light); font-weight: bold;">
-                <td colspan="5">TOTAL SALES AMOUNT</td>
+                <td colspan="6">TOTAL SALES AMOUNT</td>
                 <td style="text-align: right; color: var(--primary-color);">${settings.currency || '₹'}${totalAmt.toFixed(2)}</td>
             </tr>
         `;
@@ -7342,6 +7455,8 @@ function getDefaultBranchPermissions() {
         editTableMgmt: true,
         editWaiter: true,
         editDoctor: true,
+        editMenuCard: true,
+        editDigitalOrders: true,
         manageCategories: true,
         manageExpCategories: true
     };
@@ -7400,6 +7515,8 @@ function onPermBranchSelectChange() {
     if (document.getElementById('perm-edit-table-mgmt')) document.getElementById('perm-edit-table-mgmt').checked = perms.editTableMgmt !== false;
     if (document.getElementById('perm-edit-waiter')) document.getElementById('perm-edit-waiter').checked = (perms.editWaiter !== undefined ? perms.editWaiter : perms.editWaiterDoctor) !== false;
     if (document.getElementById('perm-edit-doctor')) document.getElementById('perm-edit-doctor').checked = (perms.editDoctor !== undefined ? perms.editDoctor : perms.editWaiterDoctor) !== false;
+    if (document.getElementById('perm-edit-menu-card')) document.getElementById('perm-edit-menu-card').checked = perms.editMenuCard !== false;
+    if (document.getElementById('perm-edit-digital-orders')) document.getElementById('perm-edit-digital-orders').checked = perms.editDigitalOrders !== false;
     if (document.getElementById('perm-manage-categories')) document.getElementById('perm-manage-categories').checked = perms.manageCategories !== false;
     if (document.getElementById('perm-manage-exp-categories')) document.getElementById('perm-manage-exp-categories').checked = perms.manageExpCategories !== false;
 }
@@ -7419,6 +7536,8 @@ function saveBranchSettingsPermissions() {
         editTableMgmt: document.getElementById('perm-edit-table-mgmt')?.checked !== false,
         editWaiter: document.getElementById('perm-edit-waiter')?.checked !== false,
         editDoctor: document.getElementById('perm-edit-doctor')?.checked !== false,
+        editMenuCard: document.getElementById('perm-edit-menu-card')?.checked !== false,
+        editDigitalOrders: document.getElementById('perm-edit-digital-orders')?.checked !== false,
         manageCategories: document.getElementById('perm-manage-categories')?.checked !== false,
         manageExpCategories: document.getElementById('perm-manage-exp-categories')?.checked !== false
     };
@@ -7481,6 +7600,26 @@ function applyBranchSettingsPermissions() {
     if (document.getElementById('set-enable-doctor')) {
         const doctorAllowed = perms.editDoctor !== undefined ? perms.editDoctor : perms.editWaiterDoctor;
         document.getElementById('set-enable-doctor').disabled = !doctorAllowed;
+    }
+
+    // Menu Card Toggle & Nav
+    const menuCardAllowed = perms.editMenuCard !== false;
+    if (document.getElementById('set-enable-menu-card')) {
+        document.getElementById('set-enable-menu-card').disabled = !menuCardAllowed;
+    }
+    const navMenuCard = document.querySelector('.nav-item[data-section="menu-card"]');
+    if (navMenuCard) {
+        navMenuCard.style.display = (menuCardAllowed && (settings.enableMenuCard !== false)) ? 'flex' : 'none';
+    }
+
+    // Digital Orders Toggle & Nav
+    const digitalOrdersAllowed = perms.editDigitalOrders !== false;
+    if (document.getElementById('set-enable-digital-orders')) {
+        document.getElementById('set-enable-digital-orders').disabled = !digitalOrdersAllowed;
+    }
+    const navDigitalOrders = document.querySelector('.nav-item[data-section="digital-orders"]');
+    if (navDigitalOrders) {
+        navDigitalOrders.style.display = (digitalOrdersAllowed && (settings.enableDigitalOrders !== false)) ? 'flex' : 'none';
     }
 
     // Categories

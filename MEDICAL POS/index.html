@@ -802,6 +802,7 @@
                             <select id="report-type" class="form-control" onchange="generateReport()">
                                 <option value="stock">Stock Report</option>
                                 <option value="sales_all">Total Sales Report</option>
+                                <option value="sales_product">Sales Product List (Product-Wise)</option>
                                 <option value="sales_cash">Cash Sales Report</option>
                                 <option value="sales_gpay">GPay Sales Report</option>
                                 <option value="sales_credit">Customer Credit Report</option>
@@ -1431,6 +1432,34 @@
                                 <input type="checkbox" id="perm-manage-exp-categories" checked style="width: 18px; height: 18px;"> Allow Expense Categories
                             </label>
                         </div>
+
+                        <!-- Box 7: Digital Menu Card -->
+                        <div style="background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 10px; padding: 1.25rem; display: flex; flex-direction: column; justify-content: space-between;">
+                            <div>
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; color: var(--primary-color);">
+                                    <i data-lucide="book-open" style="width: 20px; height: 20px;"></i>
+                                    <h4 style="margin: 0; font-size: 1rem;">Digital Menu Card</h4>
+                                </div>
+                                <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0 0 1rem 0;">Control whether this branch can enable, access, or configure the Digital Menu Card System.</p>
+                            </div>
+                            <label style="cursor: pointer; display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 0.9rem; background: var(--card-bg); padding: 10px; border-radius: 6px; border: 1px solid var(--border-color);">
+                                <input type="checkbox" id="perm-edit-menu-card" checked style="width: 18px; height: 18px;"> Allow Toggle Menu Card
+                            </label>
+                        </div>
+
+                        <!-- Box 8: Digital Orders -->
+                        <div style="background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 10px; padding: 1.25rem; display: flex; flex-direction: column; justify-content: space-between;">
+                            <div>
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; color: var(--primary-color);">
+                                    <i data-lucide="clipboard-list" style="width: 20px; height: 20px;"></i>
+                                    <h4 style="margin: 0; font-size: 1rem;">Digital Orders</h4>
+                                </div>
+                                <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0 0 1rem 0;">Control whether this branch can enable, access, or manage Digital Menu Orders.</p>
+                            </div>
+                            <label style="cursor: pointer; display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 0.9rem; background: var(--card-bg); padding: 10px; border-radius: 6px; border: 1px solid var(--border-color);">
+                                <input type="checkbox" id="perm-edit-digital-orders" checked style="width: 18px; height: 18px;"> Allow Toggle Digital Orders
+                            </label>
+                        </div>
                     </div>
 
                     <button type="button" class="btn btn-primary" onclick="saveBranchSettingsPermissions()" style="margin-top: 1rem;">
@@ -1559,6 +1588,22 @@
                                             </label>
                                             <span style="font-weight: 500; cursor: pointer;"
                                                 onclick="document.getElementById('set-enable-doctor').click()">Enable Doctor Selection in Billing Terminal</span>
+                                        </div>
+                                        <div style="display: flex; align-items: center; gap: 0.8rem; margin-top: 0.5rem;">
+                                            <label class="toggle-switch">
+                                                <input type="checkbox" id="set-enable-menu-card" checked>
+                                                <span class="toggle-slider"></span>
+                                            </label>
+                                            <span style="font-weight: 500; cursor: pointer;"
+                                                onclick="document.getElementById('set-enable-menu-card').click()">Enable Digital Menu Card System</span>
+                                        </div>
+                                        <div style="display: flex; align-items: center; gap: 0.8rem; margin-top: 0.5rem;">
+                                            <label class="toggle-switch">
+                                                <input type="checkbox" id="set-enable-digital-orders" checked>
+                                                <span class="toggle-slider"></span>
+                                            </label>
+                                            <span style="font-weight: 500; cursor: pointer;"
+                                                onclick="document.getElementById('set-enable-digital-orders').click()">Enable Digital Menu Orders System</span>
                                         </div>
                                     </div>
                                 </div>
