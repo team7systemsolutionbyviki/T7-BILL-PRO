@@ -945,6 +945,8 @@ function initApp() {
 function checkAMCStatus() {
     if (!amcData || !amcData.expiryDate) return;
     
+    const isUnlimited = (amcData.planName && (amcData.planName.toLowerCase().includes('unlimited') || amcData.planName.toLowerCase().includes('lifetime')));
+
     const now = new Date();
     const expiry = new Date(amcData.expiryDate);
     const diffTime = expiry - now;
@@ -967,6 +969,13 @@ function checkAMCStatus() {
     
     const genBillBtn = document.getElementById('generate-bill-btn');
     
+    if (isUnlimited || diffDays > 3000) {
+        banner.style.display = 'none';
+        removeAMCLockout();
+        if (genBillBtn) genBillBtn.disabled = false;
+        return;
+    }
+
     if (diffDays <= 0) {
         banner.style.backgroundColor = 'var(--danger-color)';
         banner.style.color = '#fff';
@@ -982,7 +991,6 @@ function checkAMCStatus() {
         banner.innerHTML = `Your AMC subscription (${amcData.planName}) expires in ${diffDays} days on ${new Date(amcData.expiryDate).toLocaleDateString()}. Please contact ${amcData.contactInfo} for renewal.`;
         banner.style.display = 'block';
         if (genBillBtn) genBillBtn.disabled = false;
-        banner.style.display = 'none';
         removeAMCLockout();
     } else {
         banner.style.display = 'none';
@@ -1091,18 +1099,19 @@ function loadSettings() {
                     const diffTime = expiry - now;
                     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
                     
+                    const isUnlimited = (amcData.planName && (amcData.planName.toLowerCase().includes('unlimited') || amcData.planName.toLowerCase().includes('lifetime'))) || diffDays > 3000;
                     document.getElementById('super-amc-plan').textContent = amcData.planName || 'Standard';
-                    document.getElementById('super-amc-days').textContent = diffDays < 0 ? 'Expired' : `${diffDays} days`;
-                    if (diffDays < 0) {
+                    document.getElementById('super-amc-days').textContent = isUnlimited ? 'Unlimited / Lifetime (Active)' : (diffDays < 0 ? 'Expired' : `${diffDays} days`);
+                    if (diffDays < 0 && !isUnlimited) {
                         document.getElementById('super-amc-days').style.color = 'var(--danger-color)';
-                    } else if (diffDays <= 15) {
+                    } else if (diffDays <= 15 && !isUnlimited) {
                         document.getElementById('super-amc-days').style.color = 'var(--warning-color)';
                     } else {
                         document.getElementById('super-amc-days').style.color = '#16a34a';
                     }
                 } else {
                     document.getElementById('super-amc-plan').textContent = 'Not Set';
-                    document.getElementById('super-amc-days').textContent = 'Unlimited / Lifetime';
+                    document.getElementById('super-amc-days').textContent = 'Unlimited / Lifetime (Active)';
                     document.getElementById('super-amc-days').style.color = '#16a34a';
                 }
             }
@@ -1120,19 +1129,20 @@ function loadSettings() {
                     const expiry = new Date(amcData.expiryDate);
                     const diffTime = expiry - now;
                     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                    const isUnlimited = (amcData.planName && (amcData.planName.toLowerCase().includes('unlimited') || amcData.planName.toLowerCase().includes('lifetime'))) || diffDays > 3000;
                     
                     document.getElementById('branch-amc-plan').textContent = amcData.planName || 'Standard';
-                    document.getElementById('branch-amc-days').textContent = diffDays < 0 ? 'Expired' : `${diffDays} days`;
-                    if (diffDays < 0) {
+                    document.getElementById('branch-amc-days').textContent = isUnlimited ? 'Unlimited / Lifetime (Active)' : (diffDays < 0 ? 'Expired' : `${diffDays} days`);
+                    if (diffDays < 0 && !isUnlimited) {
                         document.getElementById('branch-amc-days').style.color = 'var(--danger-color)';
-                    } else if (diffDays <= 15) {
+                    } else if (diffDays <= 15 && !isUnlimited) {
                         document.getElementById('branch-amc-days').style.color = 'var(--warning-color)';
                     } else {
                         document.getElementById('branch-amc-days').style.color = '#16a34a';
                     }
                 } else {
                     document.getElementById('branch-amc-plan').textContent = 'Not Set';
-                    document.getElementById('branch-amc-days').textContent = 'Unlimited / Lifetime';
+                    document.getElementById('branch-amc-days').textContent = 'Unlimited / Lifetime (Active)';
                     document.getElementById('branch-amc-days').style.color = '#16a34a';
                 }
             }
