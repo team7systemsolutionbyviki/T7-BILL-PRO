@@ -296,27 +296,35 @@
             <section id="billing" class="page-section">
                 <div class="billing-layout">
                     <div class="cart-section card">
-                        <div style="display: flex; gap: 1rem; align-items: center;">
-                            <div class="search-container">
-                                <i data-lucide="search" class="search-icon"></i>
+                        <div style="display: flex; flex-direction: column; gap: 0.85rem;">
+                            <!-- Full-Width Bigger Product Search Bar -->
+                            <div class="search-container" style="max-width: 100%; width: 100%; position: relative;">
+                                <i data-lucide="search" class="search-icon" style="position: absolute; left: 16px; top: 50%; transform: translateY(-50%); width: 22px; height: 22px; color: var(--primary-color);"></i>
                                 <input type="text" id="billing-search" class="form-control search-input"
-                                    placeholder="Search product name or scan barcode..." autocomplete="off">
+                                    placeholder="🔍 Search product name or scan barcode..." autocomplete="off"
+                                    style="width: 100%; height: 50px; font-size: 1.15rem; font-weight: 600; padding-left: 50px; padding-right: 18px; border-radius: 12px; border: 2px solid var(--primary-color, #0284c7); background: var(--bg-main, #ffffff); box-shadow: 0 4px 12px rgba(2, 132, 199, 0.1); transition: all 0.2s ease;">
                                 <div id="search-results" class="search-results"></div>
                             </div>
-                            <button class="btn btn-outline" onclick="toggleReturnMode()" id="return-mode-btn"
-                                style="border-color: var(--danger-color); color: var(--danger-color);">
-                                <i data-lucide="corner-down-left"></i> Return Bill
-                            </button>
-                            <button class="btn btn-outline" onclick="holdCurrentCart()"
-                                style="border-color: var(--warning-color); color: var(--warning-color);">
-                                <i data-lucide="pause-circle"></i> Hold Bill <span class="shortcut-key">Alt+O</span>
-                            </button>
-                            <button class="btn btn-outline" id="clear-cart-btn">
-                                <i data-lucide="trash-2"></i> Clear Cart <span class="shortcut-key">Alt+X</span>
-                            </button>
-                            <button class="btn btn-outline" id="btn-toggle-print-mode" onclick="togglePrintMode()" title="Click to toggle between Print Preview and Silent Direct Printing" style="border-color: #0284c7; color: #0284c7;">
-                                <i data-lucide="printer"></i> <span id="print-mode-label">Preview Mode</span>
-                            </button>
+
+                            <!-- Action Buttons Below Search Bar -->
+                            <div style="display: flex; gap: 0.65rem; align-items: center; flex-wrap: wrap;">
+                                <button class="btn btn-outline" onclick="toggleReturnMode()" id="return-mode-btn"
+                                    style="border-color: var(--danger-color); color: var(--danger-color); padding: 8px 14px; font-weight: 600; font-size: 0.9rem;">
+                                    <i data-lucide="corner-down-left"></i> Return Bill
+                                </button>
+                                <button class="btn btn-outline" onclick="holdCurrentCart()"
+                                    style="border-color: var(--warning-color); color: var(--warning-color); padding: 8px 14px; font-weight: 600; font-size: 0.9rem;">
+                                    <i data-lucide="pause-circle"></i> Hold Bill <span class="shortcut-key" style="margin-left: 4px;">Alt+O</span>
+                                </button>
+                                <button class="btn btn-outline" id="clear-cart-btn"
+                                    style="padding: 8px 14px; font-weight: 600; font-size: 0.9rem;">
+                                    <i data-lucide="trash-2"></i> Clear Cart <span class="shortcut-key" style="margin-left: 4px;">Alt+X</span>
+                                </button>
+                                <button class="btn btn-outline" id="btn-toggle-print-mode" onclick="togglePrintMode()" title="Click to toggle between Print Preview and Silent Direct Printing"
+                                    style="border-color: #0284c7; color: #0284c7; padding: 8px 14px; font-weight: 600; font-size: 0.9rem;">
+                                    <i data-lucide="printer"></i> <span id="print-mode-label">Preview Mode</span>
+                                </button>
+                            </div>
                         </div>
 
                         <div id="cart-tabs-container"
