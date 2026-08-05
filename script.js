@@ -53,13 +53,15 @@ localStorage.setItem = function(key, value) {
             'mediflow_salary_payments': 'salary_payments',
             'mediflow_held_carts': 'held_carts',
             'mediflow_amc': 'amc',
-            'mediflow_tables': 'tables'
+            'mediflow_tables': 'tables',
+            'mediflow_branch_settings_permissions': 'branch_settings_permissions'
         };
 
         const targetCol = keyMap[cleanKey] || keyMap[key];
         if (targetCol) {
              try {
-                 const payload = (targetCol === 'settings') ? JSON.parse(value) : { data: JSON.parse(value) };
+                 const objectCols = ['settings', 'amc', 'branch_settings_permissions'];
+                 const payload = objectCols.includes(targetCol) ? JSON.parse(value) : { data: JSON.parse(value) };
                  if (typeof syncToCloud === 'function') syncToCloud(targetCol, payload);
              } catch(e) {
                  console.error("Auto-backup parse error for " + key, e);
@@ -390,7 +392,7 @@ async function syncToCloud(collectionName, documentData) {
         if (collectionName === 'staffAdvances') docName = 'staff_advances';
         if (collectionName === 'salaryPayments') docName = 'salary_payments';
         
-        const globalCols = ['admins', 'branches'];
+        const globalCols = ['admins', 'branches', 'amc', 'branch_settings_permissions'];
         let fbDocName = globalCols.includes(collectionName) ? docName : `${currentBranchId}_${docName}`;
         
         await db.collection('mediflow_data').doc(fbDocName).set({
@@ -417,7 +419,7 @@ async function syncFromCloud() {
     if (!isFirebaseEnabled || !db) return;
     try {
         isSyncingFromCloud = true;
-        const collections = ['products', 'sales', 'settings', 'purchases', 'expenses', 'categories', 'expense_categories', 'customers', 'suppliers', 'admins', 'supplier_payments', 'customer_payments', 'branches', 'staff', 'attendance', 'staff_advances', 'salary_payments', 'digital_orders', 'doctors', 'held_carts', 'amc', 'tables'];
+        const collections = ['products', 'sales', 'settings', 'purchases', 'expenses', 'categories', 'expense_categories', 'customers', 'suppliers', 'admins', 'supplier_payments', 'customer_payments', 'branches', 'staff', 'attendance', 'staff_advances', 'salary_payments', 'digital_orders', 'doctors', 'held_carts', 'amc', 'tables', 'branch_settings_permissions'];
         
         let hasUpdates = false;
         for (const col of collections) {
@@ -425,7 +427,7 @@ async function syncFromCloud() {
             if (col === 'customerPayments') docName = 'customer_payments';
             if (col === 'supplierPayments') docName = 'supplier_payments';
 
-            const globalCols = ['admins', 'branches'];
+            const globalCols = ['admins', 'branches', 'amc', 'branch_settings_permissions'];
             let fbDocName = globalCols.includes(col) ? docName : `${currentBranchId}_${docName}`;
 
             const doc = await db.collection('mediflow_data').doc(fbDocName).get();
@@ -438,6 +440,22 @@ async function syncFromCloud() {
                         settings = cloudData;
                         localStorage.setItem('mediflow_settings', JSON.stringify(settings));
                         originalSetItem.call(localStorage, 'mediflow_settings', JSON.stringify(settings));
+                    }
+                } else if (col === 'amc') {
+                    let parsedAmc = cloudData;
+                    if (Array.isArray(cloudData) && cloudData.length > 0) parsedAmc = cloudData[0];
+                    if (parsedAmc && typeof parsedAmc === 'object') {
+                        amcData = parsedAmc;
+                        localStorage.setItem('mediflow_amc', JSON.stringify(amcData));
+                        originalSetItem.call(localStorage, 'mediflow_amc', JSON.stringify(amcData));
+                    }
+                } else if (col === 'branch_settings_permissions') {
+                    let parsedPerms = cloudData;
+                    if (Array.isArray(cloudData) && cloudData.length > 0) parsedPerms = cloudData[0];
+                    if (parsedPerms && typeof parsedPerms === 'object') {
+                        branchSettingsPermissions = parsedPerms;
+                        localStorage.setItem('mediflow_branch_settings_permissions', JSON.stringify(branchSettingsPermissions));
+                        originalSetItem.call(localStorage, 'mediflow_branch_settings_permissions', JSON.stringify(branchSettingsPermissions));
                     }
                 } else if (col === 'branches') {
                     branches = extractArrayData(cloudData);
@@ -474,7 +492,6 @@ async function syncFromCloud() {
                     else if (col === 'digital_orders') digitalOrders = arrayData;
                     else if (col === 'doctors') doctorsList = arrayData;
                     else if (col === 'held_carts') heldCarts = arrayData;
-                    else if (col === 'amc') amcData = arrayData;
                     else if (col === 'tables') tableList = arrayData;
 
                     window[col] = arrayData;
@@ -521,7 +538,7 @@ function setupCloudListener() {
                     const cloudData = change.doc.data().payload;
                     if (cloudData === undefined || cloudData === null) return;
 
-                    const globalCols = ['admins', 'branches'];
+                    const globalCols = ['admins', 'branches', 'amc', 'branch_settings_permissions'];
                     const isGlobal = globalCols.includes(docId);
                     const isBranchDoc = docId.startsWith(`${currentBranchId}_`);
 
@@ -538,6 +555,20 @@ function setupCloudListener() {
                             if (typeof cloudData === 'object' && !Array.isArray(cloudData)) {
                                 settings = cloudData;
                                 localStorage.setItem('mediflow_settings', JSON.stringify(settings));
+                            }
+                        } else if (colKey === 'amc') {
+                            let parsedAmc = cloudData;
+                            if (Array.isArray(cloudData) && cloudData.length > 0) parsedAmc = cloudData[0];
+                            if (parsedAmc && typeof parsedAmc === 'object') {
+                                amcData = parsedAmc;
+                                localStorage.setItem('mediflow_amc', JSON.stringify(amcData));
+                            }
+                        } else if (colKey === 'branch_settings_permissions') {
+                            let parsedPerms = cloudData;
+                            if (Array.isArray(cloudData) && cloudData.length > 0) parsedPerms = cloudData[0];
+                            if (parsedPerms && typeof parsedPerms === 'object') {
+                                branchSettingsPermissions = parsedPerms;
+                                localStorage.setItem('mediflow_branch_settings_permissions', JSON.stringify(branchSettingsPermissions));
                             }
                         } else if (colKey === 'branches') {
                             branches = extractArrayData(cloudData);
@@ -942,15 +973,149 @@ function initApp() {
     }
 }
 
-function checkAMCStatus() {
-    if (!amcData || !amcData.expiryDate) return;
-    
-    const isUnlimited = (amcData.planName && (amcData.planName.toLowerCase().includes('unlimited') || amcData.planName.toLowerCase().includes('lifetime')));
+function getBranchAMC(branchId) {
+    if (!amcData || typeof amcData !== 'object') amcData = {};
+    const target = branchId || currentBranchId || 'main';
 
-    const now = new Date();
-    const expiry = new Date(amcData.expiryDate);
-    const diffTime = expiry - now;
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    if (amcData.branches && amcData.branches[target]) {
+        return amcData.branches[target];
+    }
+    return {
+        planName: amcData.planName || 'Standard Plan',
+        expiryDate: amcData.expiryDate || '',
+        contactInfo: amcData.contactInfo || '9360039283',
+        isLocked: !!amcData.isLocked
+    };
+}
+
+function renderAMCBranchOptions() {
+    const branchSelect = document.getElementById('amc-target-branch');
+    if (!branchSelect) return;
+
+    const currentVal = branchSelect.value;
+    branchSelect.innerHTML = '';
+
+    const allOpt = document.createElement('option');
+    allOpt.value = 'all';
+    allOpt.textContent = '🌐 ALL BRANCHES (Global System Default)';
+    branchSelect.appendChild(allOpt);
+
+    (branches || []).forEach(b => {
+        const opt = document.createElement('option');
+        opt.value = b.id;
+        opt.textContent = `🏢 ${b.name} (${b.id})`;
+        if (b.id === currentVal) opt.selected = true;
+        branchSelect.appendChild(opt);
+    });
+
+    if (!branchSelect.value) branchSelect.value = 'all';
+    onAMCBranchSelectChange();
+}
+
+function onAMCBranchSelectChange() {
+    const branchSelect = document.getElementById('amc-target-branch');
+    const targetBranchId = branchSelect ? branchSelect.value : 'all';
+    
+    const branchNameEl = document.getElementById('super-amc-branch-name');
+    if (branchNameEl) {
+        if (targetBranchId === 'all') {
+            branchNameEl.textContent = 'ALL BRANCHES (Global System Default)';
+        } else {
+            const foundB = (branches || []).find(b => b.id === targetBranchId);
+            branchNameEl.textContent = foundB ? `${foundB.name} (${foundB.id})` : targetBranchId;
+        }
+    }
+
+    const branchAMC = getBranchAMC(targetBranchId === 'all' ? currentBranchId : targetBranchId);
+
+    const setPlanInput = document.getElementById('set-amc-plan');
+    const setExpiryInput = document.getElementById('set-amc-expiry');
+    const setContactInput = document.getElementById('set-amc-contact');
+
+    if (setPlanInput) setPlanInput.value = branchAMC.planName || '';
+    if (setExpiryInput) setExpiryInput.value = branchAMC.expiryDate || '';
+    if (setContactInput) setContactInput.value = branchAMC.contactInfo || '9360039283';
+
+    const planEl = document.getElementById('super-amc-plan');
+    const daysEl = document.getElementById('super-amc-days');
+    const badgeEl = document.getElementById('super-amc-lock-status-badge');
+    const btnLock = document.getElementById('btn-toggle-branch-lock');
+
+    if (branchAMC.expiryDate) {
+        const now = new Date();
+        const expiry = new Date(branchAMC.expiryDate);
+        const diffTime = expiry - now;
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        const isUnlimited = (branchAMC.planName && (branchAMC.planName.toLowerCase().includes('unlimited') || branchAMC.planName.toLowerCase().includes('lifetime'))) || diffDays > 3000;
+
+        if (planEl) planEl.textContent = branchAMC.planName || 'Standard';
+        if (daysEl) {
+            daysEl.textContent = isUnlimited ? 'Unlimited / Lifetime (Active)' : (diffDays < 0 ? 'Expired' : `${diffDays} days`);
+            daysEl.style.color = (diffDays < 0 && !isUnlimited) ? 'var(--danger-color)' : ((diffDays <= 15 && !isUnlimited) ? 'var(--warning-color)' : '#16a34a');
+        }
+    } else {
+        if (planEl) planEl.textContent = branchAMC.planName || 'Not Set';
+        if (daysEl) {
+            daysEl.textContent = 'Unlimited / Lifetime (Active)';
+            daysEl.style.color = '#16a34a';
+        }
+    }
+
+    const isLocked = !!branchAMC.isLocked;
+    if (badgeEl) {
+        badgeEl.textContent = isLocked ? '🔒 LOCKED BY SUPER ADMIN' : '✓ ACTIVE';
+        badgeEl.style.background = isLocked ? '#dc2626' : '#16a34a';
+    }
+
+    if (btnLock) {
+        if (isLocked) {
+            btnLock.innerHTML = '<i data-lucide="unlock" style="width: 18px; height: 18px; vertical-align: middle;"></i> UNLOCK BRANCH';
+            btnLock.style.background = '#16a34a';
+            btnLock.style.boxShadow = '0 4px 10px rgba(22, 163, 74, 0.2)';
+        } else {
+            btnLock.innerHTML = '<i data-lucide="lock" style="width: 18px; height: 18px; vertical-align: middle;"></i> LOCK BRANCH';
+            btnLock.style.background = '#dc2626';
+            btnLock.style.boxShadow = '0 4px 10px rgba(220, 38, 38, 0.2)';
+        }
+        if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+    }
+}
+
+function toggleBranchLockStatus() {
+    const branchSelect = document.getElementById('amc-target-branch');
+    const targetBranchId = branchSelect ? branchSelect.value : 'all';
+
+    if (!amcData || typeof amcData !== 'object') amcData = {};
+    if (!amcData.branches) amcData.branches = {};
+
+    const currentBranchAMC = getBranchAMC(targetBranchId === 'all' ? currentBranchId : targetBranchId);
+    const newLockedState = !currentBranchAMC.isLocked;
+
+    if (targetBranchId === 'all') {
+        amcData.isLocked = newLockedState;
+        (branches || []).forEach(b => {
+            if (!amcData.branches[b.id]) amcData.branches[b.id] = { ...currentBranchAMC };
+            amcData.branches[b.id].isLocked = newLockedState;
+        });
+    } else {
+        amcData.branches[targetBranchId] = {
+            ...currentBranchAMC,
+            isLocked: newLockedState
+        };
+    }
+
+    localStorage.setItem('mediflow_amc', JSON.stringify(amcData));
+    if (typeof syncToCloud === 'function') syncToCloud('amc', amcData);
+
+    onAMCBranchSelectChange();
+    checkAMCStatus();
+
+    const targetName = targetBranchId === 'all' ? 'All Branches' : targetBranchId;
+    alert(`Branch (${targetName}) has been ${newLockedState ? 'LOCKED 🔒' : 'UNLOCKED 🔓'} successfully!`);
+}
+
+function checkAMCStatus() {
+    const activeBranchAMC = getBranchAMC(currentBranchId);
 
     let banner = document.getElementById('amc-banner');
     if (!banner) {
@@ -968,7 +1133,31 @@ function checkAMCStatus() {
     banner.style.width = '100%';
     
     const genBillBtn = document.getElementById('generate-bill-btn');
-    
+
+    // 1. Check if Branch is explicitly Locked by Super Admin
+    if (activeBranchAMC.isLocked) {
+        banner.style.backgroundColor = 'var(--danger-color)';
+        banner.style.color = '#fff';
+        banner.innerHTML = `🔒 THIS BRANCH HAS BEEN LOCKED BY SUPER ADMIN. Access is temporarily restricted. Contact: ${activeBranchAMC.contactInfo || '9360039283'}`;
+        banner.style.display = 'block';
+        if (genBillBtn) genBillBtn.disabled = true;
+        enforceAMCLockout();
+        return;
+    }
+
+    if (!activeBranchAMC.expiryDate) {
+        banner.style.display = 'none';
+        removeAMCLockout();
+        if (genBillBtn) genBillBtn.disabled = false;
+        return;
+    }
+
+    const isUnlimited = (activeBranchAMC.planName && (activeBranchAMC.planName.toLowerCase().includes('unlimited') || activeBranchAMC.planName.toLowerCase().includes('lifetime')));
+    const now = new Date();
+    const expiry = new Date(activeBranchAMC.expiryDate);
+    const diffTime = expiry - now;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
     if (isUnlimited || diffDays > 3000) {
         banner.style.display = 'none';
         removeAMCLockout();
@@ -979,7 +1168,7 @@ function checkAMCStatus() {
     if (diffDays <= 0) {
         banner.style.backgroundColor = 'var(--danger-color)';
         banner.style.color = '#fff';
-        banner.innerHTML = `AMC Subscription Expired on ${new Date(amcData.expiryDate).toLocaleDateString()}. Please renew to ensure uninterrupted service. Contact: ${amcData.contactInfo}`;
+        banner.innerHTML = `AMC Subscription Expired on ${new Date(activeBranchAMC.expiryDate).toLocaleDateString()}. Please renew to ensure uninterrupted service. Contact: ${activeBranchAMC.contactInfo}`;
         banner.style.display = 'block';
         if (genBillBtn) genBillBtn.disabled = true;
         
@@ -988,7 +1177,7 @@ function checkAMCStatus() {
     } else if (diffDays <= 15) {
         banner.style.backgroundColor = 'var(--warning-color)';
         banner.style.color = '#fff';
-        banner.innerHTML = `Your AMC subscription (${amcData.planName}) expires in ${diffDays} days on ${new Date(amcData.expiryDate).toLocaleDateString()}. Please contact ${amcData.contactInfo} for renewal.`;
+        banner.innerHTML = `Your AMC subscription (${activeBranchAMC.planName}) expires in ${diffDays} days on ${new Date(activeBranchAMC.expiryDate).toLocaleDateString()}. Please contact ${activeBranchAMC.contactInfo} for renewal.`;
         banner.style.display = 'block';
         if (genBillBtn) genBillBtn.disabled = false;
         removeAMCLockout();
@@ -1085,35 +1274,14 @@ function loadSettings() {
 
         // AMC Panel handling
         const user = sessionStorage.getItem('mediflow_user');
-        if (user === 'VIKI') {
+        const userRole = sessionStorage.getItem('mediflow_user_role') || sessionStorage.getItem('mediflow_logged_in_role');
+        const isSuperAdmin = !user || user === 'VIKI' || (user && user.toLowerCase() === 'viki') || userRole === 'super_admin' || userRole === 'Super Admin' || user === 'superadmin' || user === 'admin';
+
+        if (isSuperAdmin) {
             const amcPanel = document.getElementById('amc-admin-panel');
             if (amcPanel) {
                 amcPanel.style.display = 'block';
-                document.getElementById('set-amc-plan').value = amcData ? (amcData.planName || '') : '';
-                document.getElementById('set-amc-expiry').value = amcData ? (amcData.expiryDate || '') : '';
-                document.getElementById('set-amc-contact').value = amcData ? (amcData.contactInfo || '') : '';
-                
-                if (amcData && amcData.expiryDate) {
-                    const now = new Date();
-                    const expiry = new Date(amcData.expiryDate);
-                    const diffTime = expiry - now;
-                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                    
-                    const isUnlimited = (amcData.planName && (amcData.planName.toLowerCase().includes('unlimited') || amcData.planName.toLowerCase().includes('lifetime'))) || diffDays > 3000;
-                    document.getElementById('super-amc-plan').textContent = amcData.planName || 'Standard';
-                    document.getElementById('super-amc-days').textContent = isUnlimited ? 'Unlimited / Lifetime (Active)' : (diffDays < 0 ? 'Expired' : `${diffDays} days`);
-                    if (diffDays < 0 && !isUnlimited) {
-                        document.getElementById('super-amc-days').style.color = 'var(--danger-color)';
-                    } else if (diffDays <= 15 && !isUnlimited) {
-                        document.getElementById('super-amc-days').style.color = 'var(--warning-color)';
-                    } else {
-                        document.getElementById('super-amc-days').style.color = '#16a34a';
-                    }
-                } else {
-                    document.getElementById('super-amc-plan').textContent = 'Not Set';
-                    document.getElementById('super-amc-days').textContent = 'Unlimited / Lifetime (Active)';
-                    document.getElementById('super-amc-days').style.color = '#16a34a';
-                }
+                renderAMCBranchOptions();
             }
             const amcBranchPanel = document.getElementById('amc-branch-panel');
             if (amcBranchPanel) amcBranchPanel.style.display = 'none';
@@ -1124,14 +1292,16 @@ function loadSettings() {
             const amcBranchPanel = document.getElementById('amc-branch-panel');
             if (amcBranchPanel) {
                 amcBranchPanel.style.display = 'block';
-                if (amcData && amcData.expiryDate) {
+                const branchAMC = getBranchAMC(currentBranchId);
+
+                if (branchAMC && branchAMC.expiryDate) {
                     const now = new Date();
-                    const expiry = new Date(amcData.expiryDate);
+                    const expiry = new Date(branchAMC.expiryDate);
                     const diffTime = expiry - now;
                     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                    const isUnlimited = (amcData.planName && (amcData.planName.toLowerCase().includes('unlimited') || amcData.planName.toLowerCase().includes('lifetime'))) || diffDays > 3000;
+                    const isUnlimited = (branchAMC.planName && (branchAMC.planName.toLowerCase().includes('unlimited') || branchAMC.planName.toLowerCase().includes('lifetime'))) || diffDays > 3000;
                     
-                    document.getElementById('branch-amc-plan').textContent = amcData.planName || 'Standard';
+                    document.getElementById('branch-amc-plan').textContent = branchAMC.planName || 'Standard';
                     document.getElementById('branch-amc-days').textContent = isUnlimited ? 'Unlimited / Lifetime (Active)' : (diffDays < 0 ? 'Expired' : `${diffDays} days`);
                     if (diffDays < 0 && !isUnlimited) {
                         document.getElementById('branch-amc-days').style.color = 'var(--danger-color)';
@@ -1583,20 +1753,75 @@ function setupEventListeners() {
     if (amcForm) {
         amcForm.addEventListener('submit', (e) => {
             e.preventDefault();
-            amcData = {
-                planName: document.getElementById('set-amc-plan').value,
-                expiryDate: document.getElementById('set-amc-expiry').value,
-                contactInfo: document.getElementById('set-amc-contact').value
-            };
+
+            const branchSelect = document.getElementById('amc-target-branch');
+            const targetBranchId = branchSelect ? branchSelect.value : 'all';
+
+            if (!amcData || typeof amcData !== 'object') amcData = {};
+            if (!amcData.branches) amcData.branches = {};
+
+            const planName = document.getElementById('set-amc-plan').value;
+            const expiryDate = document.getElementById('set-amc-expiry').value;
+            const contactInfo = document.getElementById('set-amc-contact').value;
+
+            if (targetBranchId === 'all') {
+                amcData.planName = planName;
+                amcData.expiryDate = expiryDate;
+                amcData.contactInfo = contactInfo;
+
+                (branches || []).forEach(b => {
+                    amcData.branches[b.id] = {
+                        planName,
+                        expiryDate,
+                        contactInfo,
+                        isLocked: (amcData.branches[b.id] && amcData.branches[b.id].isLocked) || false
+                    };
+                });
+            } else {
+                amcData.branches[targetBranchId] = {
+                    planName,
+                    expiryDate,
+                    contactInfo,
+                    isLocked: (amcData.branches[targetBranchId] && amcData.branches[targetBranchId].isLocked) || false
+                };
+            }
+
             localStorage.setItem('mediflow_amc', JSON.stringify(amcData));
-            alert('AMC Subscription Details Saved!');
+            if (typeof syncToCloud === 'function') syncToCloud('amc', amcData);
+
+            alert(`AMC Subscription Details Saved for Branch (${targetBranchId})!`);
+            onAMCBranchSelectChange();
             checkAMCStatus();
         });
     }
 
-    // Settings Form
     document.getElementById('settings-form').addEventListener('submit', (e) => {
         e.preventDefault();
+
+        const loggedInUser = sessionStorage.getItem('mediflow_user');
+        const userRole = sessionStorage.getItem('mediflow_user_role') || sessionStorage.getItem('mediflow_logged_in_role');
+        const isSuperAdmin = !loggedInUser || loggedInUser === 'VIKI' || (loggedInUser && loggedInUser.toLowerCase() === 'viki') || userRole === 'super_admin' || userRole === 'Super Admin';
+
+        let gstDefault = document.getElementById('set-gst-default').checked;
+        let kotEnabled = document.getElementById('set-kot-enabled') ? document.getElementById('set-kot-enabled').checked : true;
+        let enableTableMgmt = document.getElementById('set-enable-table-mgmt') ? document.getElementById('set-enable-table-mgmt').checked : false;
+        let enableTableQr = document.getElementById('set-enable-table-qr') ? document.getElementById('set-enable-table-qr').checked : true;
+        let enableWaiterSelect = document.getElementById('set-enable-waiter') ? document.getElementById('set-enable-waiter').checked : false;
+        let enableDoctorSelect = document.getElementById('set-enable-doctor') ? document.getElementById('set-enable-doctor').checked : false;
+        let enableMenuCard = document.getElementById('set-enable-menu-card') ? document.getElementById('set-enable-menu-card').checked : true;
+        let enableDigitalOrders = document.getElementById('set-enable-digital-orders') ? document.getElementById('set-enable-digital-orders').checked : true;
+
+        if (!isSuperAdmin) {
+            gstDefault = settings.gstDefault !== undefined ? settings.gstDefault : true;
+            kotEnabled = settings.kotEnabled !== undefined ? settings.kotEnabled : true;
+            enableTableMgmt = settings.enableTableMgmt !== undefined ? settings.enableTableMgmt : false;
+            enableTableQr = settings.enableTableQr !== undefined ? settings.enableTableQr : true;
+            enableWaiterSelect = settings.enableWaiterSelect !== undefined ? settings.enableWaiterSelect : false;
+            enableDoctorSelect = settings.enableDoctorSelect !== undefined ? settings.enableDoctorSelect : false;
+            enableMenuCard = settings.enableMenuCard !== undefined ? settings.enableMenuCard : true;
+            enableDigitalOrders = settings.enableDigitalOrders !== undefined ? settings.enableDigitalOrders : true;
+        }
+
         settings = {
             shopName: document.getElementById('set-shop-name').value,
             shopAddress: document.getElementById('set-shop-address').value,
@@ -1607,14 +1832,14 @@ function setupEventListeners() {
             printerType: document.getElementById('set-printer-type').value,
             printerName: document.getElementById('set-printer-name') ? document.getElementById('set-printer-name').value.trim() : 'Default System Printer',
             printCopies: document.getElementById('set-print-copies') ? Number(document.getElementById('set-print-copies').value) : 1,
-            gstDefault: document.getElementById('set-gst-default').checked,
-            kotEnabled: document.getElementById('set-kot-enabled') ? document.getElementById('set-kot-enabled').checked : true,
-            enableWaiterSelect: document.getElementById('set-enable-waiter') ? document.getElementById('set-enable-waiter').checked : false,
-            enableDoctorSelect: document.getElementById('set-enable-doctor') ? document.getElementById('set-enable-doctor').checked : false,
-            enableTableMgmt: document.getElementById('set-enable-table-mgmt') ? document.getElementById('set-enable-table-mgmt').checked : false,
-            enableTableQr: document.getElementById('set-enable-table-qr') ? document.getElementById('set-enable-table-qr').checked : true,
-            enableMenuCard: document.getElementById('set-enable-menu-card') ? document.getElementById('set-enable-menu-card').checked : true,
-            enableDigitalOrders: document.getElementById('set-enable-digital-orders') ? document.getElementById('set-enable-digital-orders').checked : true,
+            gstDefault,
+            kotEnabled,
+            enableWaiterSelect,
+            enableDoctorSelect,
+            enableTableMgmt,
+            enableTableQr,
+            enableMenuCard,
+            enableDigitalOrders,
             printMode: document.getElementById('set-print-mode') ? document.getElementById('set-print-mode').value : 'preview',
             currency: document.getElementById('set-currency').value
         };
@@ -7876,11 +8101,30 @@ function saveBranchSettingsPermissions() {
 
 function applyBranchSettingsPermissions() {
     const loggedInUser = sessionStorage.getItem('mediflow_user');
-    const isSuperAdmin = !loggedInUser || loggedInUser === 'VIKI' || (loggedInUser && loggedInUser.toLowerCase() === 'viki');
+    const userRole = sessionStorage.getItem('mediflow_user_role') || sessionStorage.getItem('mediflow_logged_in_role');
+    const isSuperAdmin = !loggedInUser || loggedInUser === 'VIKI' || (loggedInUser && loggedInUser.toLowerCase() === 'viki') || userRole === 'super_admin' || userRole === 'Super Admin';
+
+    const systemToggles = [
+        'set-gst-default',
+        'set-kot-enabled',
+        'set-enable-table-mgmt',
+        'set-enable-table-qr',
+        'set-enable-waiter',
+        'set-enable-doctor',
+        'set-enable-menu-card',
+        'set-enable-digital-orders'
+    ];
 
     if (isSuperAdmin) {
         const inputs = document.querySelectorAll('#settings-form input, #settings-form select, #settings-form button');
         inputs.forEach(el => el.disabled = false);
+        systemToggles.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.disabled = false;
+                el.title = "Super Admin: Enable or Disable Feature";
+            }
+        });
         return;
     }
 
@@ -7898,57 +8142,34 @@ function applyBranchSettingsPermissions() {
         if (el) el.disabled = !perms.editPrinter;
     });
 
-    // GST System
-    if (document.getElementById('set-gst-default')) {
-        const gstAllowed = perms.editGst !== undefined ? perms.editGst : perms.editGstKot;
-        document.getElementById('set-gst-default').disabled = !gstAllowed;
-    }
+    // SYSTEM FEATURE TOGGLES: Strictly Restricted to Super Admin ONLY
+    systemToggles.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.disabled = true;
+            el.title = "Only Super Admin can change system feature settings";
+        }
+    });
 
-    // KOT Printing System
-    if (document.getElementById('set-kot-enabled')) {
-        const kotAllowed = perms.editKot !== undefined ? perms.editKot : perms.editGstKot;
-        document.getElementById('set-kot-enabled').disabled = !kotAllowed;
-    }
-
-    // Table Management Toggle
-    if (document.getElementById('set-enable-table-mgmt')) {
-        document.getElementById('set-enable-table-mgmt').disabled = !perms.editTableMgmt;
-    }
-
-    // Waiter Selection Toggle
-    if (document.getElementById('set-enable-waiter')) {
-        const waiterAllowed = perms.editWaiter !== undefined ? perms.editWaiter : perms.editWaiterDoctor;
-        document.getElementById('set-enable-waiter').disabled = !waiterAllowed;
-    }
-
-    // Doctor Selection Toggle & Nav
-    const doctorAllowed = (perms.editDoctor !== undefined ? perms.editDoctor : perms.editWaiterDoctor) !== false;
-    if (document.getElementById('set-enable-doctor')) {
-        document.getElementById('set-enable-doctor').disabled = !doctorAllowed;
-    }
+    // Nav Item Visibility according to active settings
     const navDoctorMgmt = document.getElementById('nav-doctor-mgmt');
     if (navDoctorMgmt) {
-        navDoctorMgmt.style.display = (doctorAllowed && (settings.enableDoctorSelect !== false)) ? 'flex' : 'none';
+        navDoctorMgmt.style.display = (settings.enableDoctorSelect !== false) ? 'flex' : 'none';
     }
 
-    // Menu Card Toggle & Nav
-    const menuCardAllowed = perms.editMenuCard !== false;
-    if (document.getElementById('set-enable-menu-card')) {
-        document.getElementById('set-enable-menu-card').disabled = !menuCardAllowed;
-    }
     const navMenuCard = document.querySelector('.nav-item[data-section="menu-card"]');
     if (navMenuCard) {
-        navMenuCard.style.display = (menuCardAllowed && (settings.enableMenuCard !== false)) ? 'flex' : 'none';
+        navMenuCard.style.display = (settings.enableMenuCard !== false) ? 'flex' : 'none';
     }
 
-    // Digital Orders Toggle & Nav
-    const digitalOrdersAllowed = perms.editDigitalOrders !== false;
-    if (document.getElementById('set-enable-digital-orders')) {
-        document.getElementById('set-enable-digital-orders').disabled = !digitalOrdersAllowed;
-    }
     const navDigitalOrders = document.querySelector('.nav-item[data-section="digital-orders"]');
     if (navDigitalOrders) {
-        navDigitalOrders.style.display = (digitalOrdersAllowed && (settings.enableDigitalOrders !== false)) ? 'flex' : 'none';
+        navDigitalOrders.style.display = (settings.enableDigitalOrders !== false) ? 'flex' : 'none';
+    }
+
+    const navTableMgmt = document.getElementById('nav-table-mgmt');
+    if (navTableMgmt) {
+        navTableMgmt.style.display = (settings.enableTableMgmt !== false) ? 'flex' : 'none';
     }
 
     // Categories
@@ -7962,6 +8183,9 @@ window.renderSuperAdminSettingsPermissions = renderSuperAdminSettingsPermissions
 window.onPermBranchSelectChange = onPermBranchSelectChange;
 window.saveBranchSettingsPermissions = saveBranchSettingsPermissions;
 window.applyBranchSettingsPermissions = applyBranchSettingsPermissions;
+window.onAMCBranchSelectChange = onAMCBranchSelectChange;
+window.toggleBranchLockStatus = toggleBranchLockStatus;
+window.getBranchAMC = getBranchAMC;
 
 // --- Return Bill Engine ---
 

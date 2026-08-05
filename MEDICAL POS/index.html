@@ -1308,9 +1308,9 @@
                 <div id="amc-admin-panel" class="card"
                     style="max-width: 800px; margin-bottom: 2rem; display: none; border: 2px solid var(--danger-color);">
                     <div
-                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
                         <h3 style="color: var(--danger-color); margin: 0;"><i data-lucide="shield-alert"
-                                style="vertical-align: middle;"></i> Super Admin: AMC Subscription</h3>
+                                style="vertical-align: middle;"></i> Super Admin: AMC Subscription & Branch Lock Control</h3>
                         <button class="btn btn-outline" type="button"
                             onclick="document.getElementById('amc-form-container').style.display = document.getElementById('amc-form-container').style.display === 'none' ? 'block' : 'none'"
                             style="border-color: var(--primary-color); color: var(--primary-color);">
@@ -1318,17 +1318,36 @@
                         </button>
                     </div>
 
+                    <!-- Target Branch Selection -->
+                    <div class="form-group" style="margin-bottom: 1.25rem;">
+                        <label style="font-weight: 600; color: var(--text-color); margin-bottom: 0.5rem; display: block;">Select Target Branch:</label>
+                        <select id="amc-target-branch" class="form-control" onchange="onAMCBranchSelectChange()" style="font-weight: 600; font-size: 1rem; border-color: var(--primary-color); background: var(--card-bg);">
+                            <!-- Populated dynamically -->
+                        </select>
+                    </div>
+
+                    <!-- Selected Branch Plan Status & Lock Control Card -->
                     <div id="super-amc-status"
-                        style="margin-bottom: 1.5rem; padding: 1rem; background: var(--bg-color); border-radius: 5px; font-size: 1.1rem; line-height: 1.6;">
-                        <p><strong>Current Plan:</strong> <span id="super-amc-plan">---</span></p>
-                        <p><strong>Days Remaining:</strong> <span id="super-amc-days"
-                                style="font-weight: bold;">---</span></p>
+                        style="margin-bottom: 1.5rem; padding: 1.25rem; background: var(--bg-color); border-radius: 10px; border: 1px solid var(--border-color); font-size: 1.05rem; line-height: 1.6;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+                            <div>
+                                <p style="margin: 0 0 0.4rem 0;"><strong>Branch:</strong> <span id="super-amc-branch-name" style="color: var(--primary-color); font-weight: bold;">ALL (Global Default)</span></p>
+                                <p style="margin: 0 0 0.4rem 0;"><strong>Current Plan:</strong> <span id="super-amc-plan">---</span></p>
+                                <p style="margin: 0 0 0.4rem 0;"><strong>Days Remaining:</strong> <span id="super-amc-days" style="font-weight: bold;">---</span></p>
+                                <p style="margin: 0;"><strong>Status:</strong> <span id="super-amc-lock-status-badge" style="background: #16a34a; color: white; padding: 3px 10px; border-radius: 12px; font-weight: bold; font-size: 0.85rem;">ACTIVE</span></p>
+                            </div>
+                            <div>
+                                <button type="button" id="btn-toggle-branch-lock" onclick="toggleBranchLockStatus()" class="btn" style="padding: 10px 18px; font-weight: bold; border-radius: 8px; font-size: 0.95rem; cursor: pointer; background: #dc2626; color: white; border: none; box-shadow: 0 4px 10px rgba(220, 38, 38, 0.2);">
+                                    <i data-lucide="lock" style="width: 18px; height: 18px; vertical-align: middle;"></i> Lock Branch
+                                </button>
+                            </div>
+                        </div>
                     </div>
 
                     <div id="amc-form-container"
                         style="display: none; border-top: 1px solid var(--border-color); padding-top: 1.5rem;">
                         <div style="margin-bottom: 2rem;">
-                            <h4 style="margin-bottom: 1rem; color: var(--text-color);">Quick Extend Plan</h4>
+                            <h4 style="margin-bottom: 1rem; color: var(--text-color);">Quick Extend Plan for Selected Branch</h4>
                             <div
                                 style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px;">
                                 <button type="button" class="btn btn-outline" onclick="setQuickAMC('1 Day', 1)"
@@ -1372,7 +1391,7 @@
                                     placeholder="Phone or Email for renewals" required>
                             </div>
                             <button type="submit" class="btn btn-primary"
-                                style="background-color: var(--danger-color); border-color: var(--danger-color);">Save
+                                style="background-color: var(--danger-color); border-color: var(--danger-color);">Save Branch
                                 AMC Details</button>
                         </form>
                     </div>
@@ -1656,7 +1675,7 @@
                                     <small style="color: var(--text-muted);">Choose whether to view an on-screen bill preview modal before printing or print directly.</small>
                                 </div>
                                 <div class="form-group">
-                                    <label>GST Configuration</label>
+                                    <label style="display: flex; align-items: center; justify-content: space-between;">System Configuration Toggles <span style="font-size: 0.75rem; background: rgba(2, 132, 199, 0.1); color: var(--primary-color); padding: 2px 8px; border-radius: 12px; font-weight: 600;">🔒 Super Admin Access Only</span></label>
                                     <div
                                         style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem;">
                                         <div style="display: flex; align-items: center; gap: 0.8rem;">
@@ -1665,8 +1684,7 @@
                                                 <span class="toggle-slider"></span>
                                             </label>
                                             <span style="font-weight: 500; cursor: pointer;"
-                                                onclick="document.getElementById('set-gst-default').click()">Enable GST
-                                                system-wide (Default)</span>
+                                                onclick="if (!document.getElementById('set-gst-default').disabled) document.getElementById('set-gst-default').click()">Enable GST system-wide (Default)</span>
                                         </div>
                                         <div style="display: flex; align-items: center; gap: 0.8rem; margin-top: 0.5rem;">
                                             <label class="toggle-switch">
@@ -1674,7 +1692,7 @@
                                                 <span class="toggle-slider"></span>
                                             </label>
                                             <span style="font-weight: 500; cursor: pointer;"
-                                                onclick="document.getElementById('set-kot-enabled').click()">Enable KOT (Kitchen Order Ticket) in Billing Terminal</span>
+                                                onclick="if (!document.getElementById('set-kot-enabled').disabled) document.getElementById('set-kot-enabled').click()">Enable KOT (Kitchen Order Ticket) in Billing Terminal</span>
                                         </div>
                                         <div style="display: flex; align-items: center; gap: 0.8rem; margin-top: 0.5rem;">
                                             <label class="toggle-switch">
@@ -1682,7 +1700,7 @@
                                                 <span class="toggle-slider"></span>
                                             </label>
                                             <span style="font-weight: 500; cursor: pointer;"
-                                                onclick="document.getElementById('set-enable-table-mgmt').click()">Enable Dining Table Selection in Billing Terminal</span>
+                                                onclick="if (!document.getElementById('set-enable-table-mgmt').disabled) document.getElementById('set-enable-table-mgmt').click()">Enable Dining Table Selection in Billing Terminal</span>
                                         </div>
                                         <div style="display: flex; align-items: center; gap: 0.8rem; margin-top: 0.5rem;">
                                             <label class="toggle-switch">
@@ -1690,7 +1708,7 @@
                                                 <span class="toggle-slider"></span>
                                             </label>
                                             <span style="font-weight: 500; cursor: pointer;"
-                                                onclick="document.getElementById('set-enable-table-qr').click()">Enable Table QR Code Generator & QR Standee Printing</span>
+                                                onclick="if (!document.getElementById('set-enable-table-qr').disabled) document.getElementById('set-enable-table-qr').click()">Enable Table QR Code Generator & QR Standee Printing</span>
                                         </div>
                                         <div style="display: flex; align-items: center; gap: 0.8rem; margin-top: 0.5rem;">
                                             <label class="toggle-switch">
@@ -1698,7 +1716,7 @@
                                                 <span class="toggle-slider"></span>
                                             </label>
                                             <span style="font-weight: 500; cursor: pointer;"
-                                                onclick="document.getElementById('set-enable-waiter').click()">Enable Waiter / Staff Selection in Billing Terminal</span>
+                                                onclick="if (!document.getElementById('set-enable-waiter').disabled) document.getElementById('set-enable-waiter').click()">Enable Waiter / Staff Selection in Billing Terminal</span>
                                         </div>
                                         <div style="display: flex; align-items: center; gap: 0.8rem; margin-top: 0.5rem;">
                                             <label class="toggle-switch">
@@ -1706,7 +1724,7 @@
                                                 <span class="toggle-slider"></span>
                                             </label>
                                             <span style="font-weight: 500; cursor: pointer;"
-                                                onclick="document.getElementById('set-enable-doctor').click()">Enable Doctor Selection in Billing Terminal</span>
+                                                onclick="if (!document.getElementById('set-enable-doctor').disabled) document.getElementById('set-enable-doctor').click()">Enable Doctor Selection in Billing Terminal</span>
                                         </div>
                                         <div style="display: flex; align-items: center; gap: 0.8rem; margin-top: 0.5rem;">
                                             <label class="toggle-switch">
@@ -1714,7 +1732,7 @@
                                                 <span class="toggle-slider"></span>
                                             </label>
                                             <span style="font-weight: 500; cursor: pointer;"
-                                                onclick="document.getElementById('set-enable-menu-card').click()">Enable Digital Menu Card System</span>
+                                                onclick="if (!document.getElementById('set-enable-menu-card').disabled) document.getElementById('set-enable-menu-card').click()">Enable Digital Menu Card System</span>
                                         </div>
                                         <div style="display: flex; align-items: center; gap: 0.8rem; margin-top: 0.5rem;">
                                             <label class="toggle-switch">
@@ -1722,7 +1740,7 @@
                                                 <span class="toggle-slider"></span>
                                             </label>
                                             <span style="font-weight: 500; cursor: pointer;"
-                                                onclick="document.getElementById('set-enable-digital-orders').click()">Enable Digital Menu Orders System</span>
+                                                onclick="if (!document.getElementById('set-enable-digital-orders').disabled) document.getElementById('set-enable-digital-orders').click()">Enable Digital Menu Orders System</span>
                                         </div>
                                     </div>
                                 </div>
