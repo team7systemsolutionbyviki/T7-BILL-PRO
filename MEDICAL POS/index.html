@@ -1676,6 +1676,14 @@
                                         </div>
                                         <div style="display: flex; align-items: center; gap: 0.8rem; margin-top: 0.5rem;">
                                             <label class="toggle-switch">
+                                                <input type="checkbox" id="set-enable-table-qr" checked>
+                                                <span class="toggle-slider"></span>
+                                            </label>
+                                            <span style="font-weight: 500; cursor: pointer;"
+                                                onclick="document.getElementById('set-enable-table-qr').click()">Enable Table QR Code Generator & QR Standee Printing</span>
+                                        </div>
+                                        <div style="display: flex; align-items: center; gap: 0.8rem; margin-top: 0.5rem;">
+                                            <label class="toggle-switch">
                                                 <input type="checkbox" id="set-enable-waiter">
                                                 <span class="toggle-slider"></span>
                                             </label>
@@ -2658,7 +2666,7 @@
         </div>
 
         <!-- QR Code & Digital Menu Share Modal -->
-        <div id="qr-code-modal" class="modal" style="display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.5);">
+        <div id="qr-code-modal" class="modal" style="display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.5); position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 999999;">
             <div class="modal-content" style="max-width: 420px; text-align: center; padding: 2rem; border-radius: 16px; background: var(--card-bg);">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                     <h3 style="margin: 0; color: var(--primary-color); font-size: 1.3rem; display: flex; align-items: center; gap: 8px;"><i data-lucide="qr-code"></i> Digital Menu QR Code</h3>
@@ -2676,6 +2684,38 @@
                 <div style="display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap;">
                     <button type="button" class="btn btn-secondary" onclick="printQRCodePoster()" style="flex: 1; min-width: 140px;"><i data-lucide="printer"></i> Print Poster</button>
                     <button type="button" class="btn btn-primary" onclick="copyDigitalMenuLink()" style="flex: 1; min-width: 140px;"><i data-lucide="copy"></i> Copy Link</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Table QR Code Modal -->
+        <div id="table-qr-modal" class="modal" style="display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.6); position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 999999; backdrop-filter: blur(4px);">
+            <div class="modal-content" style="max-width: 420px; text-align: center; border-radius: 16px; padding: 2rem; background: var(--card-bg, #ffffff); box-shadow: 0 10px 30px rgba(0,0,0,0.25);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h3 id="table-qr-title" style="margin: 0; font-size: 1.25rem; color: var(--primary-color); display: flex; align-items: center; gap: 8px;"><i data-lucide="qr-code"></i> Table QR Code</h3>
+                    <button type="button" class="btn-close" onclick="closeTableQRModal()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted);">&times;</button>
+                </div>
+                <p id="table-qr-subtitle" style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 1.2rem;"></p>
+                
+                <div style="background: #ffffff; padding: 16px; border-radius: 16px; border: 2px dashed #e2e8f0; display: inline-block; box-shadow: 0 4px 12px rgba(0,0,0,0.08); margin-bottom: 1.2rem;">
+                    <img id="table-qr-img" src="" alt="Table QR Code" style="width: 220px; height: 220px; display: block; border-radius: 8px;">
+                </div>
+
+                <div style="background: var(--bg-main, #f8fafc); padding: 10px 14px; border-radius: 10px; font-size: 0.8rem; font-family: monospace; color: var(--text-main); word-break: break-all; margin-bottom: 1rem; border: 1px solid var(--border-color);" id="table-qr-url-text"></div>
+
+                <div style="margin-bottom: 1.2rem; display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;">
+                    <label for="table-qr-paper-size" style="font-size: 0.85rem; font-weight: 600; color: var(--text-main);"><i data-lucide="printer" style="width: 14px; height: 14px; vertical-align: middle;"></i> Printer Size:</label>
+                    <select id="table-qr-paper-size" style="padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--card-bg, #fff); color: var(--text-main); font-size: 0.85rem; font-weight: 600;">
+                        <option value="3inch">3 Inch Thermal (80mm)</option>
+                        <option value="4inch">4 Inch Thermal (100mm)</option>
+                        <option value="a5" selected>A5 Standee Poster</option>
+                    </select>
+                </div>
+
+                <div style="display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;">
+                    <button class="btn btn-primary" type="button" onclick="printTableQRStandee()"><i data-lucide="printer"></i> Print Table Standee</button>
+                    <button class="btn btn-outline" type="button" onclick="copyTableQRLink()"><i data-lucide="copy"></i> Copy Link</button>
+                    <button class="btn btn-secondary" type="button" onclick="closeTableQRModal()">Close</button>
                 </div>
             </div>
         </div>

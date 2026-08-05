@@ -1,28 +1,8 @@
 // T7 BillPro - Core Logic
 
-// --- Constants & State ---
-let branches = JSON.parse(localStorage.getItem('mediflow_branches')) || [];
+// Storage Interceptors for Multi-Branch (Defined FIRST before any storage access)
 let currentBranchId = sessionStorage.getItem('mediflow_current_branch') || 'branch_default';
-let currentUser = sessionStorage.getItem('mediflow_user') || null;
-let currentTheme = localStorage.getItem('mediflow_theme') || 'light';
-let admins = JSON.parse(localStorage.getItem('mediflow_admins')) || [];
-
-// Migrate legacy data if branches are empty
-if (branches.length === 0) {
-    branches.push({ id: 'branch_default', name: 'Main Branch' });
-    localStorage.setItem('mediflow_branches', JSON.stringify(branches));
-    if (localStorage.getItem('mediflow_products')) {
-        const legacyKeys = ['products', 'sales', 'settings', 'purchases', 'expenses', 'categories', 'customers', 'customer_payments', 'suppliers', 'supplier_payments', 'held_carts', 'amc'];
-        legacyKeys.forEach(k => {
-            let data = localStorage.getItem(`mediflow_${k}`);
-            if (data) localStorage.setItem(`mediflow_branch_default_${k}`, data);
-        });
-    }
-}
-let doctorsList = [];
-
-// Storage Interceptors for Multi-Branch
-const branchSpecificKeys = ['mediflow_products', 'mediflow_sales', 'mediflow_settings', 'mediflow_purchases', 'mediflow_expenses', 'mediflow_categories', 'mediflow_expense_categories', 'mediflow_customers', 'mediflow_customer_payments', 'mediflow_suppliers', 'mediflow_supplier_payments', 'mediflow_held_carts', 'mediflow_amc', 'mediflow_staff', 'mediflow_attendance', 'mediflow_staff_advances', 'mediflow_salary_payments', 'mediflow_digital_orders', 'mediflow_doctors'];
+const branchSpecificKeys = ['mediflow_products', 'mediflow_sales', 'mediflow_settings', 'mediflow_purchases', 'mediflow_expenses', 'mediflow_categories', 'mediflow_expense_categories', 'mediflow_customers', 'mediflow_customer_payments', 'mediflow_suppliers', 'mediflow_supplier_payments', 'mediflow_held_carts', 'mediflow_amc', 'mediflow_staff', 'mediflow_attendance', 'mediflow_staff_advances', 'mediflow_salary_payments', 'mediflow_digital_orders', 'mediflow_doctors', 'mediflow_tables'];
 
 const originalGetItem = localStorage.getItem;
 const originalSetItem = localStorage.setItem;
@@ -36,18 +16,229 @@ localStorage.getItem = function(key) {
 };
 
 localStorage.setItem = function(key, value) {
+    let actualKey = key;
     if (branchSpecificKeys.includes(key) && typeof currentBranchId !== 'undefined' && currentBranchId) {
-        return originalSetItem.apply(this, [`mediflow_${currentBranchId}_${key.replace('mediflow_', '')}`, value]);
+        actualKey = `mediflow_${currentBranchId}_${key.replace('mediflow_', '')}`;
     }
-    return originalSetItem.apply(this, [key, value]);
+    // 1. Save to active branch key
+    originalSetItem.apply(this, [actualKey, value]);
+
+    // 2. Dual-save to local un-prefixed set path key as local backup
+    const cleanKey = key.startsWith('mediflow_') ? key : `mediflow_${key}`;
+    if (actualKey !== cleanKey) {
+        originalSetItem.apply(this, [cleanKey, value]);
+    }
+
+    // 3. Sync EACH AND EVERY data store to Firebase Cloud if Firebase is active
+    if (typeof isSyncingFromCloud !== 'undefined' && !isSyncingFromCloud && typeof isFirebaseEnabled !== 'undefined' && isFirebaseEnabled && typeof db !== 'undefined' && db) {
+        const keyMap = {
+            'mediflow_products': 'products',
+            'mediflow_sales': 'sales',
+            'mediflow_settings': 'settings',
+            'mediflow_purchases': 'purchases',
+            'mediflow_expenses': 'expenses',
+            'mediflow_categories': 'categories',
+            'mediflow_expense_categories': 'expense_categories',
+            'mediflow_customers': 'customers',
+            'mediflow_suppliers': 'suppliers',
+            'mediflow_admins': 'admins',
+            'mediflow_supplier_payments': 'supplier_payments',
+            'mediflow_customer_payments': 'customer_payments',
+            'mediflow_branches': 'branches',
+            'mediflow_digital_orders': 'digital_orders',
+            'mediflow_doctors': 'doctors',
+            'mediflow_staff': 'staff',
+            'mediflow_attendance': 'attendance',
+            'mediflow_staff_advances': 'staff_advances',
+            'mediflow_salary_payments': 'salary_payments',
+            'mediflow_held_carts': 'held_carts',
+            'mediflow_amc': 'amc',
+            'mediflow_tables': 'tables'
+        };
+
+        const targetCol = keyMap[cleanKey] || keyMap[key];
+        if (targetCol) {
+             try {
+                 const payload = (targetCol === 'settings') ? JSON.parse(value) : { data: JSON.parse(value) };
+                 if (typeof syncToCloud === 'function') syncToCloud(targetCol, payload);
+             } catch(e) {
+                 console.error("Auto-backup parse error for " + key, e);
+             }
+        }
+    }
 };
 
 localStorage.removeItem = function(key) {
     if (branchSpecificKeys.includes(key) && typeof currentBranchId !== 'undefined' && currentBranchId) {
-        return originalRemoveItem.apply(this, [`mediflow_${currentBranchId}_${key.replace('mediflow_', '')}`]);
+        let branchKey = `mediflow_${currentBranchId}_${key.replace('mediflow_', '')}`;
+        originalRemoveItem.apply(this, [branchKey]);
     }
     return originalRemoveItem.apply(this, [key]);
 };
+
+// Robust Helper to Retrieve Legacy / Non-Prefixed Storage Data
+function getLegacyOrBranchData(key) {
+    // 1. Try standard storage (intercepted for current branch)
+    let val = localStorage.getItem(key);
+    if (val !== null) {
+        try {
+            let parsed = JSON.parse(val);
+            if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+            if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) && Object.keys(parsed).length > 0) return parsed;
+        } catch (e) {}
+    }
+
+    // 2. Try raw original un-intercepted key
+    let rawVal = originalGetItem.call(localStorage, key);
+    if (rawVal !== null) {
+        try {
+            let parsed = JSON.parse(rawVal);
+            if (parsed && ((Array.isArray(parsed) && parsed.length > 0) || (typeof parsed === 'object' && Object.keys(parsed).length > 0))) {
+                localStorage.setItem(key, rawVal);
+                return parsed;
+            }
+        } catch (e) {}
+    }
+
+    // 3. Try fallback branch_default key
+    let defaultKey = `mediflow_branch_default_${key.replace('mediflow_', '')}`;
+    let defaultVal = originalGetItem.call(localStorage, defaultKey);
+    if (defaultVal !== null) {
+        try {
+            let parsed = JSON.parse(defaultVal);
+            if (parsed && ((Array.isArray(parsed) && parsed.length > 0) || (typeof parsed === 'object' && Object.keys(parsed).length > 0))) {
+                localStorage.setItem(key, defaultVal);
+                return parsed;
+            }
+        } catch (e) {}
+    }
+
+    // 4. Try bare key (without mediflow_ prefix)
+    let bareKey = key.replace('mediflow_', '');
+    let bareVal = originalGetItem.call(localStorage, bareKey);
+    if (bareVal !== null) {
+        try {
+            let parsed = JSON.parse(bareVal);
+            if (parsed && ((Array.isArray(parsed) && parsed.length > 0) || (typeof parsed === 'object' && Object.keys(parsed).length > 0))) {
+                localStorage.setItem(key, bareVal);
+                return parsed;
+            }
+        } catch (e) {}
+    }
+
+    // Fallback if val was empty array/object
+    if (val !== null) {
+        try { return JSON.parse(val); } catch (e) {}
+    }
+    return null;
+}
+
+// Auto-reconstruct missing products from Sales & Purchases History
+function recoverProductsFromSales(currentProducts, currentSales, currentPurchases) {
+    let prodList = Array.isArray(currentProducts) ? [...currentProducts] : [];
+    const prodMap = new Map();
+
+    prodList.forEach(p => {
+        if (p && p.id) prodMap.set(String(p.id).toLowerCase(), p);
+        if (p && p.name) prodMap.set(String(p.name).trim().toLowerCase(), p);
+    });
+
+    let recoveredCount = 0;
+
+    // Recover from Sales
+    if (Array.isArray(currentSales)) {
+        currentSales.forEach(sale => {
+            if (sale && Array.isArray(sale.items)) {
+                sale.items.forEach(item => {
+                    if (!item || !item.name) return;
+                    const keyId = item.id ? String(item.id).toLowerCase() : null;
+                    const keyName = String(item.name).trim().toLowerCase();
+
+                    if ((!keyId || !prodMap.has(keyId)) && !prodMap.has(keyName)) {
+                        const newProd = {
+                            id: item.id || ('P_REC_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5)),
+                            name: item.name,
+                            barcode: item.barcode || item.code || '',
+                            category: item.category || 'General',
+                            unit: item.unit || 'pcs',
+                            hsn: item.hsn || '',
+                            batch: item.batch || '',
+                            expiry: item.expiry || '',
+                            mrp: item.mrp || item.salePrice || item.price || 0,
+                            salePrice: item.salePrice || item.price || 0,
+                            stock: 100,
+                            purchasePrice: item.purchasePrice || 0,
+                            gst: item.gst || 0
+                        };
+                        prodList.push(newProd);
+                        if (newProd.id) prodMap.set(String(newProd.id).toLowerCase(), newProd);
+                        prodMap.set(keyName, newProd);
+                        recoveredCount++;
+                    }
+                });
+            }
+        });
+    }
+
+    // Recover from Purchases
+    if (Array.isArray(currentPurchases)) {
+        currentPurchases.forEach(pur => {
+            if (pur && Array.isArray(pur.items)) {
+                pur.items.forEach(item => {
+                    if (!item || !item.name) return;
+                    const keyId = item.id ? String(item.id).toLowerCase() : null;
+                    const keyName = String(item.name).trim().toLowerCase();
+
+                    if ((!keyId || !prodMap.has(keyId)) && !prodMap.has(keyName)) {
+                        const newProd = {
+                            id: item.id || ('P_REC_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5)),
+                            name: item.name,
+                            barcode: item.barcode || item.code || '',
+                            category: item.category || 'General',
+                            unit: item.unit || 'pcs',
+                            hsn: item.hsn || '',
+                            batch: item.batch || '',
+                            expiry: item.expiry || '',
+                            mrp: item.mrp || item.salePrice || item.price || 0,
+                            salePrice: item.salePrice || item.price || 0,
+                            stock: item.qty || 100,
+                            purchasePrice: item.purchasePrice || item.price || 0,
+                            gst: item.gst || 0
+                        };
+                        prodList.push(newProd);
+                        if (newProd.id) prodMap.set(String(newProd.id).toLowerCase(), newProd);
+                        prodMap.set(keyName, newProd);
+                        recoveredCount++;
+                    }
+                });
+            }
+        });
+    }
+
+    if (recoveredCount > 0) {
+        console.log(`Auto-recovered ${recoveredCount} missing products from sales/purchase history.`);
+    }
+
+    return prodList;
+}
+
+// --- Constants & State ---
+let branches = JSON.parse(localStorage.getItem('mediflow_branches')) || [];
+let currentUser = sessionStorage.getItem('mediflow_user') || null;
+let currentTheme = localStorage.getItem('mediflow_theme') || 'light';
+let admins = JSON.parse(localStorage.getItem('mediflow_admins')) || [];
+
+// Migrate legacy data if branches are empty
+if (branches.length === 0) {
+    branches.push({ id: 'branch_default', name: 'Main Branch' });
+    localStorage.setItem('mediflow_branches', JSON.stringify(branches));
+    const legacyKeys = ['products', 'sales', 'settings', 'purchases', 'expenses', 'categories', 'customers', 'customer_payments', 'suppliers', 'supplier_payments', 'held_carts', 'amc'];
+    legacyKeys.forEach(k => {
+        let data = originalGetItem.call(localStorage, `mediflow_${k}`);
+        if (data) localStorage.setItem(`mediflow_branch_default_${k}`, data);
+    });
+}
+let doctorsList = [];
 
 // Data Variables (Loaded dynamically based on branch)
 let products = [];
@@ -59,7 +250,6 @@ let categories = [];
 let expenseCategories = [];
 let amcData = null;
 let customers = [];
-// admins declared globally above
 let customerPayments = [];
 let suppliers = [];
 let supplierPayments = [];
@@ -71,37 +261,26 @@ let staffAdvances = [];
 let salaryPayments = [];
 
 function loadBranchData() {
-    let storedProducts = localStorage.getItem('mediflow_products');
-    if (storedProducts === null) {
-        if (currentBranchId === 'branch_default' || currentBranchId === 'main') {
-            const legacyData = originalGetItem.call(localStorage, 'mediflow_products');
-            if (legacyData !== null) {
-                localStorage.setItem('mediflow_products', legacyData);
-                storedProducts = legacyData;
-            }
-        }
+    sales = getLegacyOrBranchData('mediflow_sales') || [];
+    purchases = getLegacyOrBranchData('mediflow_purchases') || [];
+
+    let loadedProducts = getLegacyOrBranchData('mediflow_products') || [];
+    if (sales.length > 0 || purchases.length > 0) {
+        loadedProducts = recoverProductsFromSales(loadedProducts, sales, purchases);
     }
 
-    if (storedProducts === null) {
-        products = [];
-        localStorage.setItem('mediflow_products', JSON.stringify(products));
-    } else {
-        try {
-            products = JSON.parse(storedProducts) || [];
-        } catch (e) {
-            products = [];
-        }
-    }
-    sales = JSON.parse(localStorage.getItem('mediflow_sales')) || [];
-    settings = JSON.parse(localStorage.getItem('mediflow_settings')) || {
+    products = loadedProducts;
+    localStorage.setItem('mediflow_products', JSON.stringify(products));
+
+    settings = getLegacyOrBranchData('mediflow_settings') || {
         shopName: 'T7 BillPro', shopAddress: '123 Medical Street, City Center', shopPhone: '+91 9876543210', shopLogo: '', printerType: '3inch', printerName: 'Default System Printer', printCopies: 1, gstDefault: true, kotEnabled: true, currency: '₹'
     };
     if (settings.kotEnabled === undefined) settings.kotEnabled = true;
     if (!settings.printerName) settings.printerName = 'Default System Printer';
     if (!settings.printCopies) settings.printCopies = 1;
-    purchases = JSON.parse(localStorage.getItem('mediflow_purchases')) || [];
-    expenses = JSON.parse(localStorage.getItem('mediflow_expenses')) || [];
-    categories = JSON.parse(localStorage.getItem('mediflow_categories')) || ['Tablet', 'Syrup', 'Injection', 'Capsule', 'Ointment', 'Other'];
+
+    expenses = getLegacyOrBranchData('mediflow_expenses') || [];
+    categories = getLegacyOrBranchData('mediflow_categories') || ['Tablet', 'Syrup', 'Injection', 'Capsule', 'Ointment', 'Other'];
     categories = Array.from(new Set(categories.map(c => String(c).trim()).filter(Boolean)));
     products.forEach(p => {
         if (p.category && String(p.category).trim() !== '') {
@@ -112,16 +291,17 @@ function loadBranchData() {
         }
     });
     localStorage.setItem('mediflow_categories', JSON.stringify(categories));
-    expenseCategories = JSON.parse(localStorage.getItem('mediflow_expense_categories')) || ['Rent', 'Electricity', 'Salary', 'Maintenance', 'Other'];
-    amcData = JSON.parse(localStorage.getItem('mediflow_amc')) || null;
-    customers = JSON.parse(localStorage.getItem('mediflow_customers')) || [];
-    customerPayments = JSON.parse(localStorage.getItem('mediflow_customer_payments')) || [];
-    suppliers = JSON.parse(localStorage.getItem('mediflow_suppliers')) || [];
-    supplierPayments = JSON.parse(localStorage.getItem('mediflow_supplier_payments')) || [];
-    heldCarts = JSON.parse(localStorage.getItem('mediflow_held_carts')) || [];
-    
-    const storedStaff = localStorage.getItem('mediflow_staff');
-    if (storedStaff === null) {
+
+    expenseCategories = getLegacyOrBranchData('mediflow_expense_categories') || ['Rent', 'Electricity', 'Salary', 'Maintenance', 'Other'];
+    amcData = getLegacyOrBranchData('mediflow_amc') || null;
+    customers = getLegacyOrBranchData('mediflow_customers') || [];
+    customerPayments = getLegacyOrBranchData('mediflow_customer_payments') || [];
+    suppliers = getLegacyOrBranchData('mediflow_suppliers') || [];
+    supplierPayments = getLegacyOrBranchData('mediflow_supplier_payments') || [];
+    heldCarts = getLegacyOrBranchData('mediflow_held_carts') || [];
+
+    const storedStaff = getLegacyOrBranchData('mediflow_staff');
+    if (!storedStaff || (Array.isArray(storedStaff) && storedStaff.length === 0)) {
         if (currentBranchId === 'branch_default' || currentBranchId === 'main') {
             staffList = [
                 { id: 'STF01', name: 'Ramesh Kumar', phone: '9876543210', role: 'Pharmacist', salaryType: 'Monthly', salaryRate: 18000, joiningDate: '2025-01-10', status: 'Active', address: 'Main Street', branchId: currentBranchId },
@@ -132,16 +312,13 @@ function loadBranchData() {
         }
         localStorage.setItem('mediflow_staff', JSON.stringify(staffList));
     } else {
-        try {
-            staffList = JSON.parse(storedStaff) || [];
-        } catch (e) {
-            staffList = [];
-        }
+        staffList = storedStaff;
     }
-    attendanceLogs = JSON.parse(localStorage.getItem('mediflow_attendance')) || [];
-    staffAdvances = JSON.parse(localStorage.getItem('mediflow_staff_advances')) || [];
-    salaryPayments = JSON.parse(localStorage.getItem('mediflow_salary_payments')) || [];
-    doctorsList = JSON.parse(localStorage.getItem('mediflow_doctors')) || [];
+
+    attendanceLogs = getLegacyOrBranchData('mediflow_attendance') || [];
+    staffAdvances = getLegacyOrBranchData('mediflow_staff_advances') || [];
+    salaryPayments = getLegacyOrBranchData('mediflow_salary_payments') || [];
+    doctorsList = getLegacyOrBranchData('mediflow_doctors') || [];
     cart = [];
     if (typeof renderBarcodeProductOptions === 'function') renderBarcodeProductOptions();
 }
@@ -240,7 +417,7 @@ async function syncFromCloud() {
     if (!isFirebaseEnabled || !db) return;
     try {
         isSyncingFromCloud = true;
-        const collections = ['products', 'sales', 'settings', 'purchases', 'expenses', 'categories', 'expense_categories', 'customers', 'suppliers', 'admins', 'supplierPayments', 'customerPayments', 'branches', 'staff', 'attendance', 'staff_advances', 'salary_payments'];
+        const collections = ['products', 'sales', 'settings', 'purchases', 'expenses', 'categories', 'expense_categories', 'customers', 'suppliers', 'admins', 'supplier_payments', 'customer_payments', 'branches', 'staff', 'attendance', 'staff_advances', 'salary_payments', 'digital_orders', 'doctors', 'held_carts', 'amc', 'tables'];
         
         let hasUpdates = false;
         for (const col of collections) {
@@ -260,16 +437,25 @@ async function syncFromCloud() {
                     if (typeof cloudData === 'object' && !Array.isArray(cloudData)) {
                         settings = cloudData;
                         localStorage.setItem('mediflow_settings', JSON.stringify(settings));
+                        originalSetItem.call(localStorage, 'mediflow_settings', JSON.stringify(settings));
                     }
                 } else if (col === 'branches') {
                     branches = extractArrayData(cloudData);
                     localStorage.setItem('mediflow_branches', JSON.stringify(branches));
+                    originalSetItem.call(localStorage, 'mediflow_branches', JSON.stringify(branches));
                 } else {
                     const arrayData = extractArrayData(cloudData);
-                    if (arrayData.length === 0 && (col === 'products' || col === 'categories')) {
-                        // Skip overwriting local products/categories with empty payload if cloud payload is unpopulated
+                    const localKey = 'mediflow_' + docName;
+                    let existingLocal = [];
+                    try {
+                        existingLocal = JSON.parse(localStorage.getItem(localKey)) || [];
+                    } catch (e) {}
+
+                    if (arrayData.length === 0 && Array.isArray(existingLocal) && existingLocal.length > 0) {
+                        // Skip overwriting populated local storage with an empty cloud collection
                         continue;
                     }
+
                     if (col === 'products') products = arrayData;
                     else if (col === 'sales') sales = arrayData;
                     else if (col === 'purchases') purchases = arrayData;
@@ -279,21 +465,33 @@ async function syncFromCloud() {
                     else if (col === 'customers') customers = arrayData;
                     else if (col === 'suppliers') suppliers = arrayData;
                     else if (col === 'admins') admins = arrayData;
-                    else if (col === 'supplierPayments') supplierPayments = arrayData;
-                    else if (col === 'customerPayments') customerPayments = arrayData;
+                    else if (col === 'supplier_payments' || col === 'supplierPayments') supplierPayments = arrayData;
+                    else if (col === 'customer_payments' || col === 'customerPayments') customerPayments = arrayData;
                     else if (col === 'staff') staffList = arrayData;
                     else if (col === 'attendance') attendanceLogs = arrayData;
                     else if (col === 'staff_advances') staffAdvances = arrayData;
                     else if (col === 'salary_payments') salaryPayments = arrayData;
+                    else if (col === 'digital_orders') digitalOrders = arrayData;
+                    else if (col === 'doctors') doctorsList = arrayData;
+                    else if (col === 'held_carts') heldCarts = arrayData;
+                    else if (col === 'amc') amcData = arrayData;
+                    else if (col === 'tables') tableList = arrayData;
 
                     window[col] = arrayData;
-                    let localKey = 'mediflow_' + docName;
                     localStorage.setItem(localKey, JSON.stringify(arrayData));
+                    originalSetItem.call(localStorage, localKey, JSON.stringify(arrayData));
                 }
                 hasUpdates = true;
             }
         }
-        
+
+        // Post Cloud Sync: Check if products need recovery from sales/purchases history
+        if ((!products || products.length === 0) && ((sales && sales.length > 0) || (purchases && purchases.length > 0))) {
+            products = recoverProductsFromSales(products, sales, purchases);
+            localStorage.setItem('mediflow_products', JSON.stringify(products));
+            hasUpdates = true;
+        }
+
         if (hasUpdates) {
             console.log("Cloud sync complete: App re-initialized with remote data.");
             initApp();
@@ -346,9 +544,16 @@ function setupCloudListener() {
                             localStorage.setItem('mediflow_branches', JSON.stringify(branches));
                         } else {
                             const arrayData = extractArrayData(cloudData);
-                            if (arrayData.length === 0 && (colKey === 'products' || colKey === 'categories')) {
+                            let localKey = 'mediflow_' + colKey;
+                            let existingLocal = [];
+                            try {
+                                existingLocal = JSON.parse(localStorage.getItem(localKey)) || [];
+                            } catch (e) {}
+
+                            if (arrayData.length === 0 && Array.isArray(existingLocal) && existingLocal.length > 0) {
                                 return;
                             }
+
                             if (colKey === 'products') products = arrayData;
                             else if (colKey === 'sales') sales = arrayData;
                             else if (colKey === 'purchases') purchases = arrayData;
@@ -362,8 +567,11 @@ function setupCloudListener() {
                             else if (colKey === 'customer_payments') customerPayments = arrayData;
 
                             window[colKey] = arrayData;
-                            let localKey = 'mediflow_' + colKey;
                             localStorage.setItem(localKey, JSON.stringify(arrayData));
+                        }
+                        if ((!products || products.length === 0) && ((sales && sales.length > 0) || (purchases && purchases.length > 0))) {
+                            products = recoverProductsFromSales(products, sales, purchases);
+                            localStorage.setItem('mediflow_products', JSON.stringify(products));
                         }
                         initApp();
                     } finally {
@@ -1394,6 +1602,7 @@ function setupEventListeners() {
             enableWaiterSelect: document.getElementById('set-enable-waiter') ? document.getElementById('set-enable-waiter').checked : false,
             enableDoctorSelect: document.getElementById('set-enable-doctor') ? document.getElementById('set-enable-doctor').checked : false,
             enableTableMgmt: document.getElementById('set-enable-table-mgmt') ? document.getElementById('set-enable-table-mgmt').checked : false,
+            enableTableQr: document.getElementById('set-enable-table-qr') ? document.getElementById('set-enable-table-qr').checked : true,
             enableMenuCard: document.getElementById('set-enable-menu-card') ? document.getElementById('set-enable-menu-card').checked : true,
             enableDigitalOrders: document.getElementById('set-enable-digital-orders') ? document.getElementById('set-enable-digital-orders').checked : true,
             printMode: document.getElementById('set-print-mode') ? document.getElementById('set-print-mode').value : 'preview',
@@ -6552,6 +6761,7 @@ function loadSettingsFields() {
     if (document.getElementById('set-enable-waiter')) document.getElementById('set-enable-waiter').checked = !!settings.enableWaiterSelect;
     if (document.getElementById('set-enable-doctor')) document.getElementById('set-enable-doctor').checked = !!settings.enableDoctorSelect;
     if (document.getElementById('set-enable-table-mgmt')) document.getElementById('set-enable-table-mgmt').checked = !!settings.enableTableMgmt;
+    if (document.getElementById('set-enable-table-qr')) document.getElementById('set-enable-table-qr').checked = (settings.enableTableQr !== false);
     if (document.getElementById('set-enable-menu-card')) document.getElementById('set-enable-menu-card').checked = (settings.enableMenuCard !== false);
     if (document.getElementById('set-enable-digital-orders')) document.getElementById('set-enable-digital-orders').checked = (settings.enableDigitalOrders !== false);
     if (document.getElementById('set-print-mode')) document.getElementById('set-print-mode').value = settings.printMode || 'preview';
@@ -8012,6 +8222,7 @@ function renderTableManagement() {
         grid.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 3rem; color: var(--text-muted);"><p>No tables added yet. Click <strong>Add Table</strong> to create your first dining table.</p></div>`;
         return;
     }
+    const showQrOption = settings.enableTableQr !== false;
 
     const today = new Date().toDateString();
     const todaySales = (sales || []).filter(s => s.tableName && new Date(s.date).toDateString() === today && !s.isReturn);
@@ -8032,6 +8243,7 @@ function renderTableManagement() {
                 <div style="display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap;">
                     <button class="btn btn-outline" onclick="setTableStatus(${idx}, 'Available')" style="padding: 3px 8px; font-size: 0.78rem; color: #16a34a; border-color: #16a34a;">✓ Free</button>
                     <button class="btn btn-outline" onclick="setTableStatus(${idx}, 'Occupied')" style="padding: 3px 8px; font-size: 0.78rem; color: #dc2626; border-color: #dc2626;">🪑 Occupied</button>
+                    ${showQrOption ? `<button class="btn btn-outline" onclick="showTableQRCode(${idx})" style="padding: 3px 8px; font-size: 0.78rem; color: #0284c7; border-color: #0284c7;" title="Table QR Code">📱 QR</button>` : ''}
                     <button class="btn btn-outline" onclick="editTableEntry(${idx})" style="padding: 3px 8px; font-size: 0.78rem;">✏</button>
                     <button class="btn btn-outline" onclick="deleteTableEntry(${idx})" style="padding: 3px 8px; font-size: 0.78rem; color: var(--danger-color);">🗑</button>
                 </div>
@@ -8066,13 +8278,13 @@ function setTableStatus(idx, status) {
 function openAddTableModal(idx = null) {
     const modal = document.getElementById('add-table-modal');
     if (!modal) return;
-    document.getElementById('edit-table-index').value = idx !== null ? idx : '';
-    document.getElementById('add-table-modal-title').textContent = idx !== null ? 'Edit Table' : 'Add Table';
+    if (document.getElementById('edit-table-index')) document.getElementById('edit-table-index').value = idx !== null ? idx : '';
+    if (document.getElementById('add-table-modal-title')) document.getElementById('add-table-modal-title').textContent = idx !== null ? 'Edit Table' : 'Add Table';
     if (idx !== null && tableList[idx]) {
         const t = tableList[idx];
-        document.getElementById('table-name-input').value = t.name || '';
-        document.getElementById('table-capacity-input').value = t.capacity || 4;
-        document.getElementById('table-zone-input').value = t.zone || 'General';
+        if (document.getElementById('table-name-input')) document.getElementById('table-name-input').value = t.name || '';
+        if (document.getElementById('table-capacity-input')) document.getElementById('table-capacity-input').value = t.capacity || 4;
+        if (document.getElementById('table-zone-input')) document.getElementById('table-zone-input').value = t.zone || 'General';
     } else {
         document.getElementById('table-name-input').value = '';
         document.getElementById('table-capacity-input').value = 4;
@@ -8093,7 +8305,7 @@ function saveTableEntry() {
     const capacity = parseInt(document.getElementById('table-capacity-input')?.value) || 4;
     const zone = document.getElementById('table-zone-input')?.value || 'General';
     const idxVal = document.getElementById('edit-table-index')?.value;
-    const idx = idxVal !== '' ? parseInt(idxVal) : null;
+    const idx = idxVal !== undefined && idxVal !== '' ? parseInt(idxVal) : null;
     if (idx !== null && tableList[idx]) {
         tableList[idx].name = name; tableList[idx].capacity = capacity; tableList[idx].zone = zone;
     } else {
@@ -8109,6 +8321,304 @@ function deleteTableEntry(idx) {
     tableList.splice(idx, 1); saveTableList(); renderTableManagement();
 }
 
+// --- Table QR Code Functions ---
+function getTableMenuURL(tableName, branchId) {
+    const targetBranch = branchId || (typeof currentBranchId !== 'undefined' && currentBranchId ? currentBranchId : (sessionStorage.getItem('mediflow_current_branch') || 'branch_default'));
+    const baseUrl = window.location.href.split('#')[0].split('?')[0];
+    return `${baseUrl}#menu-card?branch=${encodeURIComponent(targetBranch)}&table=${encodeURIComponent(tableName || '')}`;
+}
+
+function showTableQRCode(tableIdx) {
+    if (tableIdx === undefined || !tableList[tableIdx]) return;
+    const table = tableList[tableIdx];
+    const shopName = settings.shopName || 'T7 BillPro';
+    const tableUrl = getTableMenuURL(table.name);
+    const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(tableUrl)}`;
+
+    let modal = document.getElementById('table-qr-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'table-qr-modal';
+        modal.className = 'modal';
+        modal.style.display = 'none';
+        modal.innerHTML = `
+            <div class="modal-content" style="max-width: 420px; text-align: center; border-radius: 16px; padding: 2rem; background: var(--card-bg, #ffffff); box-shadow: 0 10px 30px rgba(0,0,0,0.15);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h3 id="table-qr-title" style="margin: 0; font-size: 1.25rem;">Table QR Code</h3>
+                    <button type="button" class="btn-close" onclick="closeTableQRModal()">&times;</button>
+                </div>
+                <p id="table-qr-subtitle" style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 1.2rem;"></p>
+                
+                <div style="background: #ffffff; padding: 16px; border-radius: 16px; border: 2px dashed #e2e8f0; display: inline-block; box-shadow: 0 4px 12px rgba(0,0,0,0.08); margin-bottom: 1.2rem;">
+                    <img id="table-qr-img" src="" alt="Table QR Code" style="width: 220px; height: 220px; display: block; border-radius: 8px;">
+                </div>
+
+                <div style="background: var(--bg-main, #f8fafc); padding: 10px 14px; border-radius: 10px; font-size: 0.8rem; font-family: monospace; color: var(--text-main); word-break: break-all; margin-bottom: 1.2rem; border: 1px solid var(--border-color);" id="table-qr-url-text"></div>
+
+                <div style="display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;">
+                    <button class="btn btn-primary" onclick="printTableQRStandee()"><i data-lucide="printer"></i> Print Table Standee</button>
+                    <button class="btn btn-outline" onclick="copyTableQRLink()"><i data-lucide="copy"></i> Copy Link</button>
+                    <button class="btn btn-secondary" onclick="closeTableQRModal()">Close</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+
+    window.currentQRTableIndex = tableIdx;
+    document.getElementById('table-qr-title').textContent = `QR Code - ${table.name}`;
+    document.getElementById('table-qr-subtitle').textContent = `Table: ${table.name} (${table.zone || 'General'}, ${table.capacity > 0 ? table.capacity + ' seats' : 'Takeaway'})`;
+    document.getElementById('table-qr-img').src = qrApiUrl;
+    document.getElementById('table-qr-url-text').textContent = tableUrl;
+
+    modal.style.position = 'fixed';
+    modal.style.top = '0';
+    modal.style.left = '0';
+    modal.style.width = '100vw';
+    modal.style.height = '100vh';
+    modal.style.zIndex = '999999';
+    modal.style.background = 'rgba(0,0,0,0.6)';
+    modal.style.display = 'flex';
+    modal.style.alignItems = 'center';
+    modal.style.justifyContent = 'center';
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function closeTableQRModal() {
+    const modal = document.getElementById('table-qr-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+function copyTableQRLink() {
+    if (window.currentQRTableIndex !== undefined && tableList[window.currentQRTableIndex]) {
+        const table = tableList[window.currentQRTableIndex];
+        const url = getTableMenuURL(table.name);
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(url).then(() => {
+                alert(`QR Link for ${table.name} copied to clipboard!`);
+            }).catch(() => {
+                prompt(`Copy Link for ${table.name}:`, url);
+            });
+        } else {
+            prompt(`Copy Link for ${table.name}:`, url);
+        }
+    }
+}
+
+function printTableQRStandee(idx, overrideSize) {
+    const targetIdx = idx !== undefined ? idx : window.currentQRTableIndex;
+    if (targetIdx === undefined || !tableList[targetIdx]) return;
+    const table = tableList[targetIdx];
+    const shopName = settings.shopName || 'T7 BillPro';
+    const tableUrl = getTableMenuURL(table.name);
+
+    const selectedSize = overrideSize || (document.getElementById('table-qr-paper-size') ? document.getElementById('table-qr-paper-size').value : (settings.printerType || 'a5'));
+
+    const printWin = window.open('', '_blank');
+    if (!printWin) {
+        alert('Please allow popups to print Table QR Code.');
+        return;
+    }
+
+    if (selectedSize === '3inch' || selectedSize === '4inch') {
+        const widthMm = selectedSize === '3inch' ? '76mm' : '96mm';
+        const pageMm = selectedSize === '3inch' ? '80mm auto' : '100mm auto';
+        const imgPx = selectedSize === '3inch' ? 180 : 220;
+        const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${imgPx}x${imgPx}&data=${encodeURIComponent(tableUrl)}`;
+
+        printWin.document.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>QR Ticket - ${escapeHtml(table.name)} (${selectedSize})</title>
+                <style>
+                    @media print { @page { size: ${pageMm}; margin: 0; } }
+                    body { width: ${widthMm}; margin: 0 auto; padding: 4mm 2mm; font-family: system-ui, -apple-system, sans-serif; text-align: center; background: white; color: black; }
+                    .qr-ticket { border: 2px solid #000; border-radius: 12px; padding: 10px 6px; box-sizing: border-box; }
+                    h1 { margin: 0 0 4px; font-size: 16px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; }
+                    h2 { margin: 6px 0 4px; font-size: 20px; font-weight: 800; background: #000; color: #fff; padding: 4px 12px; border-radius: 6px; display: inline-block; }
+                    .subtitle { font-size: 11px; margin-bottom: 6px; color: #333; }
+                    .qr-box { padding: 4px; margin: 6px 0; display: inline-block; border: 1px solid #ccc; border-radius: 8px; }
+                    .instructions { font-size: 13px; font-weight: 800; margin-top: 6px; text-transform: uppercase; }
+                    .steps { font-size: 10px; margin-top: 4px; line-height: 1.3; color: #222; }
+                    .divider { border-top: 1px dashed #000; margin: 8px 0; }
+                    .powered { font-size: 9px; color: #666; letter-spacing: 0.5px; }
+                </style>
+            </head>
+            <body>
+                <div class="qr-ticket">
+                    <h1>${escapeHtml(shopName)}</h1>
+                    <div class="subtitle">Digital Menu & Table Ordering</div>
+                    <div class="divider"></div>
+                    <div><h2>🪑 ${escapeHtml(table.name)}</h2></div>
+                    <div style="font-size: 11px; font-weight: bold; margin-top: 2px;">Zone: ${escapeHtml(table.zone || 'Dining Area')}</div>
+                    <div class="qr-box">
+                        <img src="${qrApiUrl}" alt="Table QR Code" style="width: ${imgPx}px; height: ${imgPx}px; display: block; margin: 0 auto;" onload="window.print()">
+                    </div>
+                    <div class="instructions">📱 SCAN TO ORDER FOOD</div>
+                    <div class="steps">1. Open Camera / QR App<br>2. Scan QR code to view menu<br>3. Select items & place order</div>
+                    <div class="divider"></div>
+                    <div class="powered">Powered by T7 BillPro</div>
+                </div>
+            </body>
+            </html>
+        `);
+    } else {
+        const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(tableUrl)}`;
+        printWin.document.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>QR Standee - ${escapeHtml(table.name)}</title>
+                <style>
+                    @media print { @page { size: A5 portrait; margin: 10mm; } }
+                    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; padding: 20px; background: #f8fafc; color: #1e293b; }
+                    .standee-card { background: white; border: 3px solid #0284c7; border-radius: 20px; padding: 30px; max-width: 400px; margin: 0 auto; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+                    h1 { color: #0284c7; margin: 0 0 5px; font-size: 24px; text-transform: uppercase; letter-spacing: 1px; }
+                    h2 { color: #0f172a; margin: 15px 0 5px; font-size: 28px; background: #e0f2fe; padding: 6px 16px; border-radius: 30px; display: inline-block; }
+                    .subtitle { color: #64748b; font-size: 14px; margin-bottom: 20px; }
+                    .qr-box { background: #ffffff; padding: 15px; border-radius: 16px; border: 2px solid #e2e8f0; display: inline-block; margin: 15px 0; }
+                    .qr-box img { width: 240px; height: 240px; display: block; }
+                    .instructions { font-size: 15px; font-weight: 600; color: #334155; margin-top: 15px; }
+                    .steps { font-size: 13px; color: #64748b; margin-top: 5px; line-height: 1.5; }
+                    .powered { margin-top: 25px; font-size: 11px; color: #94a3b8; letter-spacing: 0.5px; }
+                </style>
+            </head>
+            <body>
+                <div class="standee-card">
+                    <h1>${escapeHtml(shopName)}</h1>
+                    <div class="subtitle">Digital QR Menu & Ordering</div>
+                    <div><h2>🪑 ${escapeHtml(table.name)}</h2></div>
+                    <div style="font-size: 12px; color: #64748b; margin-top: 4px;">${escapeHtml(table.zone || 'Dining Area')}</div>
+                    <div class="qr-box">
+                        <img src="${qrApiUrl}" alt="Table QR Code" onload="window.print()">
+                    </div>
+                    <div class="instructions">📱 SCAN TO ORDER FOOD</div>
+                    <div class="steps">1. Open Camera or QR Scanner<br>2. Scan this QR Code to view menu<br>3. Select items & place order instantly</div>
+                    <div class="powered">Powered by T7 BillPro</div>
+                </div>
+            </body>
+            </html>
+        `);
+    }
+    printWin.document.close();
+}
+
+function printAllTableQrs(overrideSize) {
+    if (!tableList || tableList.length === 0) {
+        alert('No tables found to print QR codes.');
+        return;
+    }
+    const shopName = settings.shopName || 'T7 BillPro';
+    const selectedSize = overrideSize || (document.getElementById('table-qr-paper-size') ? document.getElementById('table-qr-paper-size').value : (settings.printerType || 'a5'));
+
+    const printWin = window.open('', '_blank');
+    if (!printWin) {
+        alert('Please allow popups to print Table QR Standees.');
+        return;
+    }
+
+    if (selectedSize === '3inch' || selectedSize === '4inch') {
+        const widthMm = selectedSize === '3inch' ? '76mm' : '96mm';
+        const pageMm = selectedSize === '3inch' ? '80mm auto' : '100mm auto';
+        const imgPx = selectedSize === '3inch' ? 180 : 220;
+
+        const cardsHtml = tableList.map(table => {
+            const tableUrl = getTableMenuURL(table.name);
+            const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${imgPx}x${imgPx}&data=${encodeURIComponent(tableUrl)}`;
+            return `
+                <div class="qr-ticket" style="page-break-after: always; margin-bottom: 15px;">
+                    <h1>${escapeHtml(shopName)}</h1>
+                    <div class="subtitle">Digital Menu & Table Ordering</div>
+                    <div class="divider"></div>
+                    <div><h2>🪑 ${escapeHtml(table.name)}</h2></div>
+                    <div style="font-size: 11px; font-weight: bold; margin-top: 2px;">Zone: ${escapeHtml(table.zone || 'Dining Area')}</div>
+                    <div class="qr-box">
+                        <img src="${qrApiUrl}" alt="Table QR Code" style="width: ${imgPx}px; height: ${imgPx}px; display: block; margin: 0 auto;">
+                    </div>
+                    <div class="instructions">📱 SCAN TO ORDER FOOD</div>
+                    <div class="steps">1. Open Camera / QR App<br>2. Scan QR code to view menu<br>3. Select items & place order</div>
+                    <div class="divider"></div>
+                    <div class="powered">Powered by T7 BillPro</div>
+                </div>
+            `;
+        }).join('');
+
+        printWin.document.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>All Table QR Tickets - ${escapeHtml(shopName)} (${selectedSize})</title>
+                <style>
+                    @media print { @page { size: ${pageMm}; margin: 0; } }
+                    body { width: ${widthMm}; margin: 0 auto; padding: 4mm 2mm; font-family: system-ui, -apple-system, sans-serif; text-align: center; background: white; color: black; }
+                    .qr-ticket { border: 2px solid #000; border-radius: 12px; padding: 10px 6px; box-sizing: border-box; }
+                    h1 { margin: 0 0 4px; font-size: 16px; font-weight: 800; text-transform: uppercase; }
+                    h2 { margin: 6px 0 4px; font-size: 20px; font-weight: 800; background: #000; color: #fff; padding: 4px 12px; border-radius: 6px; display: inline-block; }
+                    .subtitle { font-size: 11px; margin-bottom: 6px; color: #333; }
+                    .qr-box { padding: 4px; margin: 6px 0; display: inline-block; border: 1px solid #ccc; border-radius: 8px; }
+                    .instructions { font-size: 13px; font-weight: 800; margin-top: 6px; text-transform: uppercase; }
+                    .steps { font-size: 10px; margin-top: 4px; line-height: 1.3; color: #222; }
+                    .divider { border-top: 1px dashed #000; margin: 8px 0; }
+                    .powered { font-size: 9px; color: #666; }
+                </style>
+            </head>
+            <body onload="window.print()">
+                ${cardsHtml}
+            </body>
+            </html>
+        `);
+    } else {
+        const cardsHtml = tableList.map(table => {
+            const tableUrl = getTableMenuURL(table.name);
+            const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(tableUrl)}`;
+            return `
+                <div class="standee-card">
+                    <h1>${escapeHtml(shopName)}</h1>
+                    <div class="subtitle">Digital QR Menu & Ordering</div>
+                    <div><h2>🪑 ${escapeHtml(table.name)}</h2></div>
+                    <div style="font-size: 12px; color: #64748b; margin-top: 4px;">${escapeHtml(table.zone || 'Dining Area')}</div>
+                    <div class="qr-box">
+                        <img src="${qrApiUrl}" alt="Table QR Code">
+                    </div>
+                    <div class="instructions">📱 SCAN TO ORDER FOOD</div>
+                    <div class="steps">1. Open Camera &amp; Scan QR<br>2. Select items &amp; place order</div>
+                    <div class="powered">Powered by T7 BillPro</div>
+                </div>
+            `;
+        }).join('');
+
+        printWin.document.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>All Table QR Standees - ${escapeHtml(shopName)}</title>
+                <style>
+                    @media print {
+                        @page { size: A4 portrait; margin: 10mm; }
+                        .standee-card { page-break-inside: avoid; margin-bottom: 20px; }
+                    }
+                    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; background: #f8fafc; color: #1e293b; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+                    .standee-card { background: white; border: 3px solid #0284c7; border-radius: 20px; padding: 20px; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
+                    h1 { color: #0284c7; margin: 0 0 4px; font-size: 20px; text-transform: uppercase; }
+                    h2 { color: #0f172a; margin: 10px 0 4px; font-size: 22px; background: #e0f2fe; padding: 4px 14px; border-radius: 20px; display: inline-block; }
+                    .subtitle { color: #64748b; font-size: 12px; }
+                    .qr-box { background: #ffffff; padding: 10px; border-radius: 12px; border: 2px solid #e2e8f0; display: inline-block; margin: 10px 0; }
+                    .qr-box img { width: 180px; height: 180px; display: block; }
+                    .instructions { font-size: 13px; font-weight: 600; color: #334155; }
+                    .steps { font-size: 11px; color: #64748b; margin-top: 4px; }
+                    .powered { margin-top: 15px; font-size: 10px; color: #94a3b8; }
+                </style>
+            </head>
+            <body onload="window.print()">
+                ${cardsHtml}
+            </body>
+            </html>
+        `);
+    }
+    printWin.document.close();
+}
+
 window.renderTableManagement = renderTableManagement;
 window.openAddTableModal = openAddTableModal;
 window.closeAddTableModal = closeAddTableModal;
@@ -8116,6 +8626,11 @@ window.saveTableEntry = saveTableEntry;
 window.editTableEntry = editTableEntry;
 window.deleteTableEntry = deleteTableEntry;
 window.setTableStatus = setTableStatus;
+window.showTableQRCode = showTableQRCode;
+window.closeTableQRModal = closeTableQRModal;
+window.copyTableQRLink = copyTableQRLink;
+window.printTableQRStandee = printTableQRStandee;
+window.printAllTableQrs = printAllTableQrs;
 
 // --- Doctor Management System ---
 function renderDoctorManagement() {
