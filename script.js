@@ -1117,6 +1117,10 @@ function toggleBranchLockStatus() {
 function checkAMCStatus() {
     const activeBranchAMC = getBranchAMC(currentBranchId);
 
+    const loggedInUser = sessionStorage.getItem('mediflow_user');
+    const userRole = sessionStorage.getItem('mediflow_user_role') || sessionStorage.getItem('mediflow_logged_in_role');
+    const isSuperAdmin = !loggedInUser || loggedInUser === 'VIKI' || (loggedInUser && loggedInUser.toLowerCase() === 'viki') || userRole === 'super_admin' || userRole === 'Super Admin' || loggedInUser === 'superadmin' || loggedInUser === 'admin';
+
     let banner = document.getElementById('amc-banner');
     if (!banner) {
         banner = document.createElement('div');
@@ -1136,12 +1140,21 @@ function checkAMCStatus() {
 
     // 1. Check if Branch is explicitly Locked by Super Admin
     if (activeBranchAMC.isLocked) {
-        banner.style.backgroundColor = 'var(--danger-color)';
-        banner.style.color = '#fff';
-        banner.innerHTML = `🔒 THIS BRANCH HAS BEEN LOCKED BY SUPER ADMIN. Access is temporarily restricted. Contact: ${activeBranchAMC.contactInfo || '9360039283'}`;
-        banner.style.display = 'block';
-        if (genBillBtn) genBillBtn.disabled = true;
-        enforceAMCLockout();
+        if (isSuperAdmin) {
+            banner.style.backgroundColor = 'var(--danger-color)';
+            banner.style.color = '#fff';
+            banner.innerHTML = `🔒 THIS BRANCH IS LOCKED BY SUPER ADMIN. <span style="margin-left: 15px;"><button onclick="switchSection('settings');" style="background: white; color: var(--danger-color); border: none; padding: 4px 14px; font-weight: bold; border-radius: 6px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">Open Settings to Extend AMC / Unlock Branch</button></span>`;
+            banner.style.display = 'block';
+            removeAMCLockout();
+            if (genBillBtn) genBillBtn.disabled = false;
+        } else {
+            banner.style.backgroundColor = 'var(--danger-color)';
+            banner.style.color = '#fff';
+            banner.innerHTML = `🔒 THIS BRANCH HAS BEEN LOCKED BY SUPER ADMIN. Access is temporarily restricted. Contact: ${activeBranchAMC.contactInfo || '9360039283'}`;
+            banner.style.display = 'block';
+            if (genBillBtn) genBillBtn.disabled = true;
+            enforceAMCLockout();
+        }
         return;
     }
 
@@ -1166,14 +1179,21 @@ function checkAMCStatus() {
     }
 
     if (diffDays <= 0) {
-        banner.style.backgroundColor = 'var(--danger-color)';
-        banner.style.color = '#fff';
-        banner.innerHTML = `AMC Subscription Expired on ${new Date(activeBranchAMC.expiryDate).toLocaleDateString()}. Please renew to ensure uninterrupted service. Contact: ${activeBranchAMC.contactInfo}`;
-        banner.style.display = 'block';
-        if (genBillBtn) genBillBtn.disabled = true;
-        
-        // Lock application for expired AMC
-        enforceAMCLockout();
+        if (isSuperAdmin) {
+            banner.style.backgroundColor = 'var(--danger-color)';
+            banner.style.color = '#fff';
+            banner.innerHTML = `AMC Subscription Expired for this Branch on ${new Date(activeBranchAMC.expiryDate).toLocaleDateString()}. <span style="margin-left: 15px;"><button onclick="switchSection('settings');" style="background: white; color: var(--danger-color); border: none; padding: 4px 14px; font-weight: bold; border-radius: 6px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">Open Settings to Extend AMC</button></span>`;
+            banner.style.display = 'block';
+            removeAMCLockout();
+            if (genBillBtn) genBillBtn.disabled = false;
+        } else {
+            banner.style.backgroundColor = 'var(--danger-color)';
+            banner.style.color = '#fff';
+            banner.innerHTML = `AMC Subscription Expired on ${new Date(activeBranchAMC.expiryDate).toLocaleDateString()}. Please renew to ensure uninterrupted service. Contact: ${activeBranchAMC.contactInfo}`;
+            banner.style.display = 'block';
+            if (genBillBtn) genBillBtn.disabled = true;
+            enforceAMCLockout();
+        }
     } else if (diffDays <= 15) {
         banner.style.backgroundColor = 'var(--warning-color)';
         banner.style.color = '#fff';
@@ -1189,6 +1209,15 @@ function checkAMCStatus() {
 }
 
 function enforceAMCLockout() {
+    const loggedInUser = sessionStorage.getItem('mediflow_user');
+    const userRole = sessionStorage.getItem('mediflow_user_role') || sessionStorage.getItem('mediflow_logged_in_role');
+    const isSuperAdmin = !loggedInUser || loggedInUser === 'VIKI' || (loggedInUser && loggedInUser.toLowerCase() === 'viki') || userRole === 'super_admin' || userRole === 'Super Admin' || loggedInUser === 'superadmin' || loggedInUser === 'admin';
+
+    if (isSuperAdmin) {
+        removeAMCLockout();
+        return;
+    }
+
     let lockScreen = document.getElementById('amc-lock-screen');
     if (!lockScreen) {
         lockScreen = document.createElement('div');
@@ -1209,33 +1238,16 @@ function enforceAMCLockout() {
         document.body.appendChild(lockScreen);
     }
     
-    const user = sessionStorage.getItem('mediflow_user');
-    if (user === 'VIKI') {
-        lockScreen.innerHTML = `
-            <i data-lucide="alert-triangle" style="width: 64px; height: 64px; color: var(--danger-color); margin-bottom: 20px;"></i>
-            <h1 style="font-size: 2.5rem; margin-bottom: 10px; color: var(--danger-color);">AMC EXPIRED</h1>
-            <p style="font-size: 1.2rem; margin-bottom: 30px; text-align: center; max-width: 500px;">The AMC subscription for this branch has expired. Branch operations are currently locked.</p>
-            <button onclick="document.getElementById('amc-lock-screen').style.display='none'; switchSection('settings');" style="padding: 15px 30px; font-size: 1.1rem; background: var(--primary-color); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                Open Settings to Renew AMC
-            </button>
-            <button onclick="document.getElementById('logout-btn').click();" style="margin-top: 20px; padding: 10px 20px; font-size: 1rem; background: transparent; color: #94a3b8; border: 1px solid #334155; border-radius: 8px; cursor: pointer;">
-                Logout
-            </button>
-        `;
-        lucide.createIcons();
-        lockScreen.style.display = 'flex';
-    } else {
-        lockScreen.innerHTML = `
-            <i data-lucide="lock" style="width: 64px; height: 64px; color: var(--danger-color); margin-bottom: 20px;"></i>
-            <h1 style="font-size: 2.5rem; margin-bottom: 10px; color: var(--danger-color);">SYSTEM LOCKED</h1>
-            <p style="font-size: 1.2rem; margin-bottom: 30px; text-align: center; max-width: 500px;">The Annual Maintenance Contract (AMC) for this branch has expired. Please contact the administrator (${amcData ? amcData.contactInfo : 'Support'}) to renew the subscription.</p>
-            <button onclick="document.getElementById('logout-btn').click();" style="padding: 15px 30px; font-size: 1.1rem; background: var(--danger-color); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                Logout
-            </button>
-        `;
-        lucide.createIcons();
-        lockScreen.style.display = 'flex';
-    }
+    lockScreen.innerHTML = `
+        <i data-lucide="lock" style="width: 64px; height: 64px; color: var(--danger-color); margin-bottom: 20px;"></i>
+        <h1 style="font-size: 2.5rem; margin-bottom: 10px; color: var(--danger-color);">SYSTEM LOCKED</h1>
+        <p style="font-size: 1.2rem; margin-bottom: 30px; text-align: center; max-width: 500px;">The Annual Maintenance Contract (AMC) for this branch has expired or has been locked by Super Admin. Please contact the administrator (${amcData ? (amcData.contactInfo || 'Support') : 'Support'}) to renew or unlock.</p>
+        <button onclick="document.getElementById('logout-btn').click();" style="padding: 15px 30px; font-size: 1.1rem; background: var(--danger-color); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+            Logout
+        </button>
+    `;
+    if (typeof lucide !== 'undefined' && lucide.createIcons) lucide.createIcons();
+    lockScreen.style.display = 'flex';
 }
 
 function removeAMCLockout() {
