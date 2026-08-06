@@ -267,7 +267,7 @@ function loadBranchData() {
     purchases = getLegacyOrBranchData('mediflow_purchases') || [];
 
     let loadedProducts = getLegacyOrBranchData('mediflow_products') || [];
-    if (sales.length > 0 || purchases.length > 0) {
+    if (loadedProducts.length === 0 && (sales.length > 0 || purchases.length > 0)) {
         loadedProducts = recoverProductsFromSales(loadedProducts, sales, purchases);
     }
 
@@ -283,15 +283,18 @@ function loadBranchData() {
 
     expenses = getLegacyOrBranchData('mediflow_expenses') || [];
     categories = getLegacyOrBranchData('mediflow_categories') || ['Tablet', 'Syrup', 'Injection', 'Capsule', 'Ointment', 'Other'];
-    categories = Array.from(new Set(categories.map(c => String(c).trim()).filter(Boolean)));
+    const catSet = new Set(categories.map(c => String(c).trim()).filter(Boolean));
+    const catLowerSet = new Set(Array.from(catSet).map(c => c.toLowerCase()));
     products.forEach(p => {
-        if (p.category && String(p.category).trim() !== '') {
+        if (p.category) {
             const catClean = String(p.category).trim();
-            if (!categories.some(c => c.toLowerCase() === catClean.toLowerCase())) {
-                categories.push(catClean);
+            if (catClean && !catLowerSet.has(catClean.toLowerCase())) {
+                catLowerSet.add(catClean.toLowerCase());
+                catSet.add(catClean);
             }
         }
     });
+    categories = Array.from(catSet);
     localStorage.setItem('mediflow_categories', JSON.stringify(categories));
 
     expenseCategories = getLegacyOrBranchData('mediflow_expense_categories') || ['Rent', 'Electricity', 'Salary', 'Maintenance', 'Other'];
@@ -422,84 +425,87 @@ async function syncFromCloud() {
         const collections = ['products', 'sales', 'settings', 'purchases', 'expenses', 'categories', 'expense_categories', 'customers', 'suppliers', 'admins', 'supplier_payments', 'customer_payments', 'branches', 'staff', 'attendance', 'staff_advances', 'salary_payments', 'digital_orders', 'doctors', 'held_carts', 'amc', 'tables', 'branch_settings_permissions'];
         
         let hasUpdates = false;
-        for (const col of collections) {
+        const globalCols = ['admins', 'branches', 'amc', 'branch_settings_permissions'];
+
+        const docs = await Promise.all(collections.map(col => {
             let docName = col;
             if (col === 'customerPayments') docName = 'customer_payments';
             if (col === 'supplierPayments') docName = 'supplier_payments';
-
-            const globalCols = ['admins', 'branches', 'amc', 'branch_settings_permissions'];
             let fbDocName = globalCols.includes(col) ? docName : `${currentBranchId}_${docName}`;
+            return db.collection('mediflow_data').doc(fbDocName).get()
+                .then(doc => ({ col, docName, doc }))
+                .catch(() => null);
+        }));
 
-            const doc = await db.collection('mediflow_data').doc(fbDocName).get();
-            if (doc.exists) {
-                const cloudData = doc.data().payload;
-                if (cloudData === undefined || cloudData === null) continue;
+        for (const item of docs) {
+            if (!item || !item.doc || !item.doc.exists) continue;
+            const { col, docName, doc } = item;
+            const cloudData = doc.data().payload;
+            if (cloudData === undefined || cloudData === null) continue;
 
-                if (col === 'settings') {
-                    if (typeof cloudData === 'object' && !Array.isArray(cloudData)) {
-                        settings = cloudData;
-                        localStorage.setItem('mediflow_settings', JSON.stringify(settings));
-                        originalSetItem.call(localStorage, 'mediflow_settings', JSON.stringify(settings));
-                    }
-                } else if (col === 'amc') {
-                    let parsedAmc = cloudData;
-                    if (Array.isArray(cloudData) && cloudData.length > 0) parsedAmc = cloudData[0];
-                    if (parsedAmc && typeof parsedAmc === 'object') {
-                        amcData = parsedAmc;
-                        localStorage.setItem('mediflow_amc', JSON.stringify(amcData));
-                        originalSetItem.call(localStorage, 'mediflow_amc', JSON.stringify(amcData));
-                    }
-                } else if (col === 'branch_settings_permissions') {
-                    let parsedPerms = cloudData;
-                    if (Array.isArray(cloudData) && cloudData.length > 0) parsedPerms = cloudData[0];
-                    if (parsedPerms && typeof parsedPerms === 'object') {
-                        branchSettingsPermissions = parsedPerms;
-                        localStorage.setItem('mediflow_branch_settings_permissions', JSON.stringify(branchSettingsPermissions));
-                        originalSetItem.call(localStorage, 'mediflow_branch_settings_permissions', JSON.stringify(branchSettingsPermissions));
-                    }
-                } else if (col === 'branches') {
-                    branches = extractArrayData(cloudData);
-                    localStorage.setItem('mediflow_branches', JSON.stringify(branches));
-                    originalSetItem.call(localStorage, 'mediflow_branches', JSON.stringify(branches));
-                } else {
-                    const arrayData = extractArrayData(cloudData);
-                    const localKey = 'mediflow_' + docName;
-                    let existingLocal = [];
-                    try {
-                        existingLocal = JSON.parse(localStorage.getItem(localKey)) || [];
-                    } catch (e) {}
-
-                    if (arrayData.length === 0 && Array.isArray(existingLocal) && existingLocal.length > 0) {
-                        // Skip overwriting populated local storage with an empty cloud collection
-                        continue;
-                    }
-
-                    if (col === 'products') products = arrayData;
-                    else if (col === 'sales') sales = arrayData;
-                    else if (col === 'purchases') purchases = arrayData;
-                    else if (col === 'expenses') expenses = arrayData;
-                    else if (col === 'categories') categories = arrayData;
-                    else if (col === 'expense_categories') expenseCategories = arrayData;
-                    else if (col === 'customers') customers = arrayData;
-                    else if (col === 'suppliers') suppliers = arrayData;
-                    else if (col === 'admins') admins = arrayData;
-                    else if (col === 'supplier_payments' || col === 'supplierPayments') supplierPayments = arrayData;
-                    else if (col === 'customer_payments' || col === 'customerPayments') customerPayments = arrayData;
-                    else if (col === 'staff') staffList = arrayData;
-                    else if (col === 'attendance') attendanceLogs = arrayData;
-                    else if (col === 'staff_advances') staffAdvances = arrayData;
-                    else if (col === 'salary_payments') salaryPayments = arrayData;
-                    else if (col === 'digital_orders') digitalOrders = arrayData;
-                    else if (col === 'doctors') doctorsList = arrayData;
-                    else if (col === 'held_carts') heldCarts = arrayData;
-                    else if (col === 'tables') tableList = arrayData;
-
-                    window[col] = arrayData;
-                    localStorage.setItem(localKey, JSON.stringify(arrayData));
-                    originalSetItem.call(localStorage, localKey, JSON.stringify(arrayData));
+            if (col === 'settings') {
+                if (typeof cloudData === 'object' && !Array.isArray(cloudData)) {
+                    settings = cloudData;
+                    localStorage.setItem('mediflow_settings', JSON.stringify(settings));
+                    originalSetItem.call(localStorage, 'mediflow_settings', JSON.stringify(settings));
                 }
-                hasUpdates = true;
+            } else if (col === 'amc') {
+                let parsedAmc = cloudData;
+                if (Array.isArray(cloudData) && cloudData.length > 0) parsedAmc = cloudData[0];
+                if (parsedAmc && typeof parsedAmc === 'object') {
+                    amcData = parsedAmc;
+                    localStorage.setItem('mediflow_amc', JSON.stringify(amcData));
+                    originalSetItem.call(localStorage, 'mediflow_amc', JSON.stringify(amcData));
+                }
+            } else if (col === 'branch_settings_permissions') {
+                let parsedPerms = cloudData;
+                if (Array.isArray(cloudData) && cloudData.length > 0) parsedPerms = cloudData[0];
+                if (parsedPerms && typeof parsedPerms === 'object') {
+                    branchSettingsPermissions = parsedPerms;
+                    localStorage.setItem('mediflow_branch_settings_permissions', JSON.stringify(branchSettingsPermissions));
+                    originalSetItem.call(localStorage, 'mediflow_branch_settings_permissions', JSON.stringify(branchSettingsPermissions));
+                }
+            } else if (col === 'branches') {
+                branches = extractArrayData(cloudData);
+                localStorage.setItem('mediflow_branches', JSON.stringify(branches));
+                originalSetItem.call(localStorage, 'mediflow_branches', JSON.stringify(branches));
+            } else {
+                const arrayData = extractArrayData(cloudData);
+                const localKey = 'mediflow_' + docName;
+                let existingLocal = [];
+                try {
+                    existingLocal = JSON.parse(localStorage.getItem(localKey)) || [];
+                } catch (e) {}
+
+                if (arrayData.length === 0 && Array.isArray(existingLocal) && existingLocal.length > 0) {
+                    continue;
+                }
+
+                if (col === 'products') products = arrayData;
+                else if (col === 'sales') sales = arrayData;
+                else if (col === 'purchases') purchases = arrayData;
+                else if (col === 'expenses') expenses = arrayData;
+                else if (col === 'categories') categories = arrayData;
+                else if (col === 'expense_categories') expenseCategories = arrayData;
+                else if (col === 'customers') customers = arrayData;
+                else if (col === 'suppliers') suppliers = arrayData;
+                else if (col === 'admins') admins = arrayData;
+                else if (col === 'supplier_payments' || col === 'supplierPayments') supplierPayments = arrayData;
+                else if (col === 'customer_payments' || col === 'customerPayments') customerPayments = arrayData;
+                else if (col === 'staff') staffList = arrayData;
+                else if (col === 'attendance') attendanceLogs = arrayData;
+                else if (col === 'staff_advances') staffAdvances = arrayData;
+                else if (col === 'salary_payments') salaryPayments = arrayData;
+                else if (col === 'digital_orders') digitalOrders = arrayData;
+                else if (col === 'doctors') doctorsList = arrayData;
+                else if (col === 'held_carts') heldCarts = arrayData;
+                else if (col === 'tables') tableList = arrayData;
+
+                window[col] = arrayData;
+                localStorage.setItem(localKey, JSON.stringify(arrayData));
+                originalSetItem.call(localStorage, localKey, JSON.stringify(arrayData));
             }
+            hasUpdates = true;
         }
 
         // Post Cloud Sync: Check if products need recovery from sales/purchases history
@@ -510,7 +516,7 @@ async function syncFromCloud() {
         }
 
         if (hasUpdates) {
-            console.log("Cloud sync complete: App re-initialized with remote data.");
+            console.log("Parallel Cloud sync complete: App re-initialized with remote data.");
             initApp();
         }
     } catch (e) {
@@ -1353,6 +1359,9 @@ function loadSettings() {
 
 // --- Navigation ---
 function switchSection(sectionId) {
+    if (typeof isCustomerViewActive !== 'undefined' && isCustomerViewActive || (document.body && document.body.classList.contains('customer-mode'))) {
+        sectionId = 'menu-card';
+    }
     // Update UI
     document.querySelectorAll('.page-section').forEach(s => s.classList.remove('active'));
     document.getElementById(sectionId).classList.add('active');
@@ -2480,6 +2489,36 @@ function parseCSVLine(line) {
     cols.push(currentVal.trim().replace(/^"|"$/g, ''));
     return cols;
 }
+
+function formatPrintQty(item) {
+    const unit = (item.saleUnit || item.unit || '').trim();
+    if (!unit) return `${item.qty}`;
+    
+    let unitDisplay = unit;
+    if (unit.toLowerCase() === 'kg') unitDisplay = 'Kg';
+    else if (unit.toLowerCase() === 'grm') unitDisplay = 'grm';
+    else if (unit.toLowerCase() === 'ltr') unitDisplay = 'Ltr';
+    else if (unit.toLowerCase() === 'ml') unitDisplay = 'ml';
+    else if (unit.toLowerCase() === 'pcs') unitDisplay = 'Pcs';
+    else unitDisplay = unit.charAt(0).toUpperCase() + unit.slice(1);
+
+    return `${item.qty} ${unitDisplay}`;
+}
+
+function formatPrintRate(item) {
+    const priceStr = parseFloat(item.salePrice || 0).toFixed(2);
+    let baseUnit = (item.unit || item.saleUnit || '').trim();
+    if (!baseUnit) return priceStr;
+
+    let unitDisplay = baseUnit;
+    if (baseUnit.toLowerCase() === 'kg' || item.saleUnit === 'grm') unitDisplay = 'Kg';
+    else if (baseUnit.toLowerCase() === 'ltr' || item.saleUnit === 'ml') unitDisplay = 'Ltr';
+    else if (baseUnit.toLowerCase() === 'pcs') unitDisplay = 'Pcs';
+    else unitDisplay = baseUnit.charAt(0).toUpperCase() + baseUnit.slice(1);
+
+    return `${priceStr} / ${unitDisplay}`;
+}
+
 function getItemLineTotal(item) {
     const qty = parseFloat(item.qty) || 0;
     const price = parseFloat(item.salePrice) || 0;
@@ -2529,11 +2568,21 @@ function updateSalesUnitOptions() {
 }
 
 // --- Product Management ---
+// --- Product Management ---
 function renderProducts() {
     try {
         const tbody = document.querySelector('#products-table tbody');
         if (!tbody) return;
         tbody.innerHTML = '';
+
+        const loggedInUser = sessionStorage.getItem('mediflow_user');
+        const userRole = sessionStorage.getItem('mediflow_user_role') || sessionStorage.getItem('mediflow_logged_in_role');
+        const isSuperAdmin = loggedInUser && (loggedInUser === 'VIKI' || loggedInUser.toLowerCase() === 'viki' || userRole === 'super_admin' || userRole === 'Super Admin' || loggedInUser === 'superadmin' || loggedInUser === 'admin');
+
+        const delAllBtn = document.getElementById('delete-all-branch-products-btn');
+        if (delAllBtn) {
+            delAllBtn.style.display = isSuperAdmin ? 'inline-flex' : 'none';
+        }
 
         const searchInput = document.getElementById('product-list-search');
         const query = searchInput ? searchInput.value.toLowerCase() : '';
@@ -2579,7 +2628,7 @@ function renderProducts() {
             <td>
                 <button class="btn btn-primary" onclick="addToCartAndSwitch('${p.id}')" style="padding: 5px; background: var(--secondary-color);"><i data-lucide="shopping-cart" style="width: 16px;"></i></button>
                 <button class="btn btn-outline" onclick="editProduct('${p.id}')" style="padding: 5px;"><i data-lucide="edit-2" style="width: 16px;"></i></button>
-                ${sessionStorage.getItem('mediflow_user') === 'VIKI' ? `<button class="btn btn-outline" onclick="deleteProduct('${p.id}')" style="padding: 5px; color: var(--danger-color);"><i data-lucide="trash" style="width: 16px;"></i></button>` : ''}
+                ${isSuperAdmin ? `<button class="btn btn-outline" onclick="deleteProduct('${p.id}')" style="padding: 5px; color: var(--danger-color);"><i data-lucide="trash" style="width: 16px;"></i></button>` : ''}
             </td>
         `;
         tbody.appendChild(tr);
@@ -2593,6 +2642,43 @@ function renderProducts() {
         console.error('Error rendering products:', e);
     }
 }
+
+function deleteAllBranchProducts() {
+    const loggedInUser = sessionStorage.getItem('mediflow_user');
+    const userRole = sessionStorage.getItem('mediflow_user_role') || sessionStorage.getItem('mediflow_logged_in_role');
+    const isSuperAdmin = loggedInUser && (loggedInUser === 'VIKI' || loggedInUser.toLowerCase() === 'viki' || userRole === 'super_admin' || userRole === 'Super Admin' || loggedInUser === 'superadmin' || loggedInUser === 'admin');
+
+    if (!isSuperAdmin) {
+        alert("🔒 Only Super Admin can delete all branch products!");
+        return;
+    }
+
+    if (!products || products.length === 0) {
+        alert("There are no products in this branch to delete.");
+        return;
+    }
+
+    const branchName = currentBranchId || 'Active Branch';
+    const count = products.length;
+    const confirmMessage = `⚠️ SUPER ADMIN WARNING:\n\nAre you sure you want to PERMANENTLY DELETE ALL ${count} products from Branch (${branchName})?\n\nThis will wipe out all product inventory for this branch and CANNOT be undone!`;
+    
+    if (confirm(confirmMessage)) {
+        const doubleConfirm = prompt(`Type DELETE to confirm wiping all ${count} products for Branch (${branchName}):`);
+        if (doubleConfirm && doubleConfirm.trim().toUpperCase() === 'DELETE') {
+            products = [];
+            localStorage.setItem('mediflow_products', JSON.stringify(products));
+            if (typeof syncToCloud === 'function') {
+                syncToCloud('products', products);
+            }
+            renderProducts();
+            if (typeof renderCartProducts === 'function') renderCartProducts();
+            alert(`✅ All products for Branch (${branchName}) have been permanently deleted.`);
+        } else {
+            alert("Deletion cancelled. Products were not modified.");
+        }
+    }
+}
+window.deleteAllBranchProducts = deleteAllBranchProducts;
 
 function addToCartAndSwitch(id) {
     addToCart(id);
@@ -3293,15 +3379,21 @@ function printBill(sale) {
     if (cashierEl) cashierEl.textContent = sessionStorage.getItem('mediflow_user') || 'Unknown';
     
     const itemsTbody = document.getElementById('bill-items-body');
-    itemsTbody.innerHTML = sale.items.map((item, index) => `
-        <tr>
-            <td style="padding: 2px 0;">${index + 1}</td>
-            <td style="padding: 2px 0; word-break: break-word;">${item.name}</td>
-            <td style="padding: 2px 0; text-align: center;">${item.qty}</td>
-            <td style="padding: 2px 0; text-align: right;">${item.salePrice.toFixed(2)}</td>
-            <td style="padding: 2px 0; text-align: right;">${(item.salePrice * item.qty).toFixed(2)}</td>
-        </tr>
-    `).join('');
+    itemsTbody.innerHTML = sale.items.map((item, index) => {
+        const qtyDisplay = formatPrintQty(item);
+        const rateDisplay = formatPrintRate(item);
+        const lineTotal = typeof getItemLineTotal === 'function' ? getItemLineTotal(item) : (item.salePrice * item.qty);
+
+        return `
+            <tr>
+                <td style="padding: 2px 0;">${index + 1}</td>
+                <td style="padding: 2px 0; word-break: break-word;">${item.name}</td>
+                <td style="padding: 2px 0; text-align: center;">${qtyDisplay}</td>
+                <td style="padding: 2px 0; text-align: right; font-size: 0.72rem; line-height: 1.2; white-space: nowrap;">${rateDisplay}</td>
+                <td style="padding: 2px 0; text-align: right;">${lineTotal.toFixed(2)}</td>
+            </tr>
+        `;
+    }).join('');
 
     const curr = settings.currency || '₹';
     document.getElementById('bill-subtotal').textContent = `${sale.subtotal.toFixed(2)}`;
@@ -5058,6 +5150,41 @@ window.addEventListener('storage', (e) => {
 let activeMenuCategory = 'ALL';
 let activeMenuViewMode = 'grid';
 
+function isMenuAdminView() {
+    if (typeof isCustomerViewActive !== 'undefined' && isCustomerViewActive || (document.body && document.body.classList.contains('customer-mode'))) return false;
+    const loggedInUser = sessionStorage.getItem('mediflow_user');
+    const userRole = sessionStorage.getItem('mediflow_user_role') || sessionStorage.getItem('mediflow_logged_in_role');
+    return loggedInUser && (
+        loggedInUser === 'VIKI' || loggedInUser.toLowerCase() === 'viki' ||
+        userRole === 'super_admin' || userRole === 'Super Admin' ||
+        userRole === 'admin' || userRole === 'Admin' ||
+        loggedInUser === 'superadmin' || loggedInUser === 'admin'
+    );
+}
+
+function toggleMenuShowStock(productId) {
+    const idx = products.findIndex(p => p.id === productId);
+    if (idx < 0) return;
+    products[idx].menuShowStock = !products[idx].menuShowStock;
+    localStorage.setItem('mediflow_products', JSON.stringify(products));
+    syncToCloud('products', products);
+    renderMenuCard();
+}
+
+function toggleMenuNotAvailableToday(productId) {
+    const idx = products.findIndex(p => p.id === productId);
+    if (idx < 0) return;
+    const today = new Date().toDateString();
+    if (products[idx].menuNotAvailableDate === today) {
+        products[idx].menuNotAvailableDate = null; // Remove — make available again
+    } else {
+        products[idx].menuNotAvailableDate = today; // Mark not available today
+    }
+    localStorage.setItem('mediflow_products', JSON.stringify(products));
+    syncToCloud('products', products);
+    renderMenuCard();
+}
+
 function renderMenuCard(query) {
     const container = document.getElementById('menu-card-content');
     const searchInput = document.getElementById('menu-card-search');
@@ -5065,6 +5192,8 @@ function renderMenuCard(query) {
     if (!container) return;
 
     const searchQuery = (query !== undefined ? query : (searchInput ? searchInput.value : '')).toLowerCase().trim();
+    const isAdmin = isMenuAdminView();
+    const today = new Date().toDateString();
 
     if (clearBtn) {
         clearBtn.style.display = searchQuery.length > 0 ? 'flex' : 'none';
@@ -5154,6 +5283,21 @@ function renderMenuCard(query) {
             const isInfinite = stockVal >= 999999;
             const stockText = isInfinite ? '∞ Infinite' : stockVal.toString();
             
+            // --- Expiry Check: auto "Not Available" if expired today or past ---
+            const parsedExpiry = p.expiry ? new Date(p.expiry) : null;
+            const todayDate = new Date();
+            todayDate.setHours(0, 0, 0, 0);
+            const isExpiredToday = parsedExpiry && parsedExpiry <= todayDate;
+
+            // --- Manual "Not Available Today" flag ---
+            const isManuallyUnavailable = p.menuNotAvailableDate === today;
+
+            // Combine: unavailable if expired OR manually marked
+            const isNotAvailableToday = isExpiredToday || isManuallyUnavailable;
+
+            // --- Show Stock toggle (admin checkbox) ---
+            const showStock = p.menuShowStock === true; // Only show if explicitly enabled by admin
+
             let stockBadgeClass = 'badge-instock';
             let stockLabel = `In Stock: ${stockText}`;
             if (stockVal <= 0 && !isInfinite) {
@@ -5172,14 +5316,44 @@ function renderMenuCard(query) {
             const orderItem = menuOrderCart.find(item => item.id === p.id);
             const orderedQty = orderItem ? orderItem.qty : 0;
 
+            // Admin controls row
+            const adminControlsHtml = isAdmin ? `
+                <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 6px 0 4px 0; border-top: 1px dashed var(--border-color); margin-top: 6px;">
+                    <label style="display: flex; align-items: center; gap: 4px; font-size: 0.75rem; color: var(--text-muted); cursor: pointer; user-select: none;"
+                        title="Show stock count on the menu card for customers">
+                        <input type="checkbox" ${showStock ? 'checked' : ''} 
+                            onchange="toggleMenuShowStock('${p.id}')"
+                            style="accent-color: var(--primary-color); width: 14px; height: 14px; cursor: pointer;">
+                        Show Stock
+                    </label>
+                    <button type="button"
+                        onclick="toggleMenuNotAvailableToday('${p.id}')"
+                        style="padding: 3px 8px; font-size: 0.72rem; border-radius: 6px; border: 1px solid ${isManuallyUnavailable ? '#dc2626' : '#d97706'}; background: ${isManuallyUnavailable ? 'rgba(220,38,38,0.08)' : 'rgba(217,119,6,0.08)'}; color: ${isManuallyUnavailable ? '#dc2626' : '#d97706'}; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 4px;">
+                        <i data-lucide="${isManuallyUnavailable ? 'check-circle' : 'x-circle'}" style="width: 12px;"></i>
+                        ${isManuallyUnavailable ? 'Mark Available' : 'Not Available Today'}
+                    </button>
+                    ${isExpiredToday ? `<span style="font-size: 0.7rem; color: #dc2626; font-weight: 600;">⚠ Expired/Expires Today</span>` : ''}
+                </div>
+            ` : '';
+
+            // Not Available overlay badge
+            const notAvailableBadge = isNotAvailableToday ? `
+                <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.45); border-radius: 14px; display: flex; align-items: center; justify-content: center; z-index: 2; pointer-events: ${isAdmin ? 'none' : 'all'};">
+                    <span style="background: #dc2626; color: #fff; font-size: 0.82rem; font-weight: 700; padding: 6px 14px; border-radius: 20px; letter-spacing: 0.5px;">
+                        🚫 Not Available Today
+                    </span>
+                </div>
+            ` : '';
+
             html += `
-                <div class="menu-item-card">
+                <div class="menu-item-card" style="position: relative; ${isNotAvailableToday ? 'opacity: 0.7;' : ''}">
+                    ${notAvailableBadge}
                     <div class="menu-card-top">
                         <div>
                             <div class="menu-item-title">${p.name}</div>
                             <div class="menu-badges" style="margin-top: 6px;">
                                 <span class="badge-cat">${p.category || 'General'}</span>
-                                <span class="badge-stock ${stockBadgeClass}">${stockLabel}</span>
+                                ${showStock ? `<span class="badge-stock ${stockBadgeClass}">${stockLabel}</span>` : ''}
                             </div>
                         </div>
                     </div>
@@ -5195,7 +5369,7 @@ function renderMenuCard(query) {
                             <span class="price-sale">${settings.currency}${saleVal.toFixed(2)}</span>
                         </div>
                         <div style="display: flex; gap: 6px; align-items: center;">
-                            ${stockVal > 0 || isInfinite ? (
+                            ${!isNotAvailableToday && (stockVal > 0 || isInfinite) ? (
                                 orderedQty > 0 ? `
                                     <div class="menu-qty-ctrl">
                                         <button type="button" class="btn-qty" onclick="updateMenuOrderQuantity('${p.id}', -1)">-</button>
@@ -5207,9 +5381,10 @@ function renderMenuCard(query) {
                                         <i data-lucide="shopping-bag" style="width: 15px;"></i> Order
                                     </button>
                                 `
-                            ) : ''}
+                            ) : (!isNotAvailableToday ? '' : `<span style="font-size: 0.78rem; color: #dc2626; font-weight: 600;">Not Available</span>`)}
                         </div>
                     </div>
+                    ${adminControlsHtml}
                 </div>
             `;
         });
@@ -5402,6 +5577,14 @@ function openMenuOrderCheckoutModal() {
         nameInput.value = (loggedUser && loggedUser !== 'VIKI') ? loggedUser : '';
     }
 
+    // Pre-fill Table Info if scanned from Table QR
+    const orderTypeSelect = document.getElementById('morder-type');
+    const orderRefInput = document.getElementById('morder-ref');
+    if (typeof currentCustomerTable !== 'undefined' && currentCustomerTable) {
+        if (orderTypeSelect) orderTypeSelect.value = 'Dine-In / Table';
+        if (orderRefInput && !orderRefInput.value) orderRefInput.value = currentCustomerTable;
+    }
+
     document.getElementById('menu-order-modal').style.display = 'flex';
     lucide.createIcons();
 }
@@ -5444,7 +5627,7 @@ function sendOrderToBillingTerminal() {
 
 function handleMenuOrderSubmit(e) {
     e.preventDefault();
-    if (menuOrderCart.length === 0) {
+    if (!menuOrderCart || menuOrderCart.length === 0) {
         alert('Cart is empty!');
         return;
     }
@@ -5474,6 +5657,7 @@ function handleMenuOrderSubmit(e) {
             batch: i.batch
         })),
         paymentMode: 'Pending',
+        status: 'Pending',
         orderType: orderType,
         orderRef: ref,
         notes: notes,
@@ -5489,6 +5673,24 @@ function handleMenuOrderSubmit(e) {
     localStorage.setItem('mediflow_sales', JSON.stringify(sales));
     syncToCloud('sales', { data: sales });
 
+    // Also push to digital_orders list & cloud
+    let digitalOrders = JSON.parse(localStorage.getItem('mediflow_digital_orders')) || [];
+    digitalOrders.unshift({
+        id: orderId,
+        date: new Date().toISOString(),
+        customerName: name,
+        customerPhone: phone,
+        orderType: orderType,
+        orderRef: ref,
+        notes: notes,
+        items: saleRecord.items,
+        totalAmount: grandTotal,
+        status: 'Pending',
+        createdAt: new Date().toLocaleString()
+    });
+    localStorage.setItem('mediflow_digital_orders', JSON.stringify(digitalOrders));
+    syncToCloud('digital_orders', digitalOrders);
+
     // Deduct stock
     menuOrderCart.forEach(orderItem => {
         const prodIndex = products.findIndex(p => p.id === orderItem.id);
@@ -5500,16 +5702,17 @@ function handleMenuOrderSubmit(e) {
 
     closeMenuOrderModal();
 
-    document.getElementById('success-order-id').textContent = `#${orderId}`;
-    document.getElementById('success-order-customer').textContent = `${name} (${phone})`;
-    document.getElementById('success-order-items').textContent = `${menuOrderCart.length} item(s) - ${orderType}`;
-    document.getElementById('success-order-total').textContent = `${settings.currency}${grandTotal.toFixed(2)}`;
+    if (document.getElementById('success-order-id')) document.getElementById('success-order-id').textContent = `#${orderId}`;
+    if (document.getElementById('success-order-customer')) document.getElementById('success-order-customer').textContent = `${name} (${phone})`;
+    if (document.getElementById('success-order-items')) document.getElementById('success-order-items').textContent = `${menuOrderCart.length} item(s) - ${orderType} ${ref ? '(' + ref + ')' : ''}`;
+    if (document.getElementById('success-order-total')) document.getElementById('success-order-total').textContent = `${settings.currency}${grandTotal.toFixed(2)}`;
 
-    const waMsg = encodeURIComponent(`*T7 BillPro Digital Order Confirmation*\nOrder ID: #${orderId}\nCustomer: ${name}\nOrder Type: ${orderType}\nTotal: ${settings.currency}${grandTotal.toFixed(2)}\n\nThank you for ordering!`);
+    const waMsg = encodeURIComponent(`*T7 BillPro Digital Order Confirmation*\nOrder ID: #${orderId}\nCustomer: ${name}\nOrder Type: ${orderType} ${ref ? '(' + ref + ')' : ''}\nTotal: ${settings.currency}${grandTotal.toFixed(2)}\n\nThank you for your order!`);
     const waBtn = document.getElementById('success-whatsapp-btn');
-    if (waBtn) waBtn.href = `https://wa.me/91${phone}?text=${waMsg}`;
+    if (waBtn) waBtn.href = `https://wa.me/91${phone.replace(/\D/g, '')}?text=${waMsg}`;
 
-    document.getElementById('menu-order-success-modal').style.display = 'flex';
+    const successModal = document.getElementById('menu-order-success-modal');
+    if (successModal) successModal.style.display = 'flex';
     lucide.createIcons();
 
     clearMenuOrder();
@@ -6845,15 +7048,31 @@ window.triggerPrintPaySlip = triggerPrintPaySlip;
 
 // --- Customer Digital Menu View & Ordering ---
 let isCustomerViewActive = false;
+let currentCustomerTable = null;
+
+function getTableFromURL() {
+    const hash = window.location.hash || '';
+    const search = window.location.search || '';
+    const match = hash.match(/[?&]table=([^&]+)/) || search.match(/[?&]table=([^&]+)/);
+    if (match && match[1]) {
+        return decodeURIComponent(match[1].replace(/\+/g, ' '));
+    }
+    return null;
+}
 
 function enableCustomerMenuView() {
     isCustomerViewActive = true;
-    document.body.classList.add('customer-mode');
+    if (document.body) document.body.classList.add('customer-mode');
     
     const branchFromUrl = typeof getBranchIdFromURL === 'function' ? getBranchIdFromURL() : null;
     if (branchFromUrl) {
         currentBranchId = branchFromUrl;
         sessionStorage.setItem('mediflow_current_branch', branchFromUrl);
+    }
+
+    const tableFromUrl = getTableFromURL();
+    if (tableFromUrl) {
+        currentCustomerTable = tableFromUrl;
     }
 
     const loginScreen = document.getElementById('login-screen');
@@ -6873,10 +7092,15 @@ function enableCustomerMenuView() {
         document.getElementById('cust-shop-name').textContent = settings.shopName || (currentBranchObj ? currentBranchObj.name : 'T7 BillPro');
     }
     if (document.getElementById('cust-shop-phone')) {
-        document.getElementById('cust-shop-phone').textContent = settings.shopAddress ? `${settings.shopAddress} | ${settings.shopPhone || ''}` : (settings.shopPhone || 'Digital Catalog & Menu');
+        let text = settings.shopAddress ? `${settings.shopAddress} | ${settings.shopPhone || ''}` : (settings.shopPhone || 'Digital Catalog & Menu');
+        if (currentCustomerTable) {
+            text = `📍 ${currentCustomerTable} • ${text}`;
+        }
+        document.getElementById('cust-shop-phone').textContent = text;
     }
 
     switchSection('menu-card');
+    if (typeof renderMenuCard === 'function') renderMenuCard();
     if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 
@@ -6888,98 +7112,29 @@ function openAdminLoginFromCustomerView() {
     window.location.reload();
 }
 
-function openMenuOrderCheckoutModal() {
-    if (!menuOrderCart || menuOrderCart.length === 0) {
-        alert('Your digital cart is empty. Please add items to place an order.');
-        return;
-    }
-
-    const modal = document.getElementById('menu-checkout-modal');
-    if (!modal) return;
-
-    const totalQty = menuOrderCart.reduce((sum, item) => sum + Number(item.qty || 1), 0);
-    const totalPrice = menuOrderCart.reduce((sum, item) => sum + (Number(item.qty || 1) * Number(item.salePrice || item.mrp || 0)), 0);
-
-    if (document.getElementById('checkout-item-count')) document.getElementById('checkout-item-count').textContent = totalQty;
-    if (document.getElementById('checkout-total-amount')) document.getElementById('checkout-total-amount').textContent = totalPrice.toFixed(2);
-
-    modal.style.display = 'flex';
-}
-
-function closeMenuOrderCheckoutModal() {
-    const modal = document.getElementById('menu-checkout-modal');
-    if (modal) modal.style.display = 'none';
-}
-
-function submitCustomerDigitalOrder(e) {
-    e.preventDefault();
-    if (!menuOrderCart || menuOrderCart.length === 0) {
-        alert('Cart is empty.');
-        return;
-    }
-
-    const name = document.getElementById('cust-order-name').value.trim();
-    const phone = document.getElementById('cust-order-phone').value.trim();
-    const orderType = document.getElementById('cust-order-type').value;
-    const notes = document.getElementById('cust-order-notes').value.trim();
-
-    const orderRef = 'ORD' + String(Date.now()).slice(-6);
-    const totalPrice = menuOrderCart.reduce((sum, item) => sum + (Number(item.qty || 1) * Number(item.salePrice || item.mrp || 0)), 0);
-
-    const digitalOrder = {
-        id: orderRef,
-        date: new Date().toISOString(),
-        customerName: name,
-        customerPhone: phone,
-        orderType: orderType,
-        notes: notes,
-        items: menuOrderCart.map(item => ({
-            id: item.id,
-            name: item.name,
-            quantity: Number(item.qty || 1),
-            salePrice: Number(item.salePrice || 0),
-            mrp: Number(item.mrp || 0),
-            gst: Number(item.gst || 0),
-            batch: item.batch || ''
-        })),
-        totalAmount: totalPrice,
-        status: 'Pending',
-        createdAt: new Date().toLocaleString()
-    };
-
-    let digitalOrders = JSON.parse(localStorage.getItem('mediflow_digital_orders')) || [];
-    digitalOrders.unshift(digitalOrder);
-    localStorage.setItem('mediflow_digital_orders', JSON.stringify(digitalOrders));
-    syncToCloud('digital_orders', digitalOrders);
-
-    closeMenuOrderCheckoutModal();
-
-    if (document.getElementById('success-order-ref')) document.getElementById('success-order-ref').textContent = orderRef;
-    const successModal = document.getElementById('menu-order-success-modal');
-    if (successModal) successModal.style.display = 'flex';
-
-    menuOrderCart = [];
-    if (typeof updateMenuOrderDrawer === 'function') updateMenuOrderDrawer();
-    if (typeof renderMenuCard === 'function') renderMenuCard();
-}
-
-function closeMenuOrderSuccessModal() {
+function closeMenuSuccessModal() {
     const modal = document.getElementById('menu-order-success-modal');
     if (modal) modal.style.display = 'none';
 }
 
-window.addEventListener('hashchange', () => {
-    if ((window.location.hash === '#menu-card' || window.location.hash === '#menu') && sessionStorage.getItem('mediflow_logged_in') !== 'true') {
+function checkAndEnableCustomerMenu() {
+    const hash = window.location.hash || '';
+    const search = window.location.search || '';
+    const isMenuUrl = hash.includes('menu') || search.includes('table=') || search.includes('branch=');
+    const isLoggedIn = sessionStorage.getItem('mediflow_logged_in') === 'true';
+    
+    if (isMenuUrl && !isLoggedIn) {
         enableCustomerMenuView();
     }
-});
+}
+
+window.addEventListener('hashchange', checkAndEnableCustomerMenu);
+window.addEventListener('DOMContentLoaded', checkAndEnableCustomerMenu);
 
 window.enableCustomerMenuView = enableCustomerMenuView;
 window.openAdminLoginFromCustomerView = openAdminLoginFromCustomerView;
-window.openMenuOrderCheckoutModal = openMenuOrderCheckoutModal;
-window.closeMenuOrderCheckoutModal = closeMenuOrderCheckoutModal;
-window.submitCustomerDigitalOrder = submitCustomerDigitalOrder;
-window.closeMenuOrderSuccessModal = closeMenuOrderSuccessModal;
+window.closeMenuSuccessModal = closeMenuSuccessModal;
+window.getTableFromURL = getTableFromURL;
 window.renderBranches = renderBranches;
 window.openBranchModal = openBranchModal;
 window.closeBranchModal = closeBranchModal;

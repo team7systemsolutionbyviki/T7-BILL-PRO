@@ -512,6 +512,11 @@
                             <button type="button" class="btn btn-outline" style="border-color: #d97706; color: #d97706; font-weight: 600;" onclick="removeDuplicateProducts()" title="Merge duplicate product names and combine stock">
                                 <i data-lucide="copy-x" style="width: 16px;"></i> Merge Duplicates
                             </button>
+                            <button type="button" class="btn btn-outline super-admin-only-btn" id="delete-all-branch-products-btn"
+                                style="border-color: var(--danger-color); color: var(--danger-color); font-weight: bold; background: rgba(220, 38, 38, 0.05); display: none;"
+                                onclick="deleteAllBranchProducts()" title="Super Admin: Delete all products in this branch">
+                                <i data-lucide="trash-2" style="width: 16px;"></i> Delete All Branch Products
+                            </button>
                             <input type="file" id="product-import-input" style="display: none;" accept=".json,.csv">
                             <button class="btn btn-primary" id="open-add-product">
                                 <i data-lucide="plus"></i> Add New Product <span class="shortcut-key">Alt+N</span>

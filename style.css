@@ -921,9 +921,13 @@ input:checked + .toggle-slider:before {
     transform: translateX(24px);
 }
 
-/* Digital Menu Card - Playful Theme */
+/* --- Digital Menu Card Modern UI System --- */
 .menu-card-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
     padding: 20px;
+    padding-bottom: 2rem;
     animation: fadeIn 0.5s ease-in-out;
 }
 
@@ -940,14 +944,6 @@ input:checked + .toggle-slider:before {
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     font-weight: 800;
-}
-
-/* --- Digital Menu Card Modern UI System --- */
-.menu-card-container {
-    display: flex;
-    flex-direction: column;
-    gap: 1.25rem;
-    padding-bottom: 2rem;
 }
 
 .menu-card-hero {
@@ -1603,6 +1599,10 @@ body.customer-mode #customer-top-bar {
 
 body.customer-mode .page-section {
     padding: 1rem;
+}
+
+body.customer-mode .page-section:not(#menu-card) {
+    display: none !important;
 }
 
 body.customer-mode #menu-card {
