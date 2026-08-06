@@ -568,6 +568,9 @@ function setupCloudListener() {
                             if (parsedAmc && typeof parsedAmc === 'object') {
                                 amcData = parsedAmc;
                                 localStorage.setItem('mediflow_amc', JSON.stringify(amcData));
+                                if (typeof renderBranches === 'function') renderBranches();
+                                if (typeof checkAMCStatus === 'function') checkAMCStatus();
+                                if (typeof onAMCBranchSelectChange === 'function') onAMCBranchSelectChange();
                             }
                         } else if (colKey === 'branch_settings_permissions') {
                             let parsedPerms = cloudData;
@@ -1813,6 +1816,7 @@ function setupEventListeners() {
             alert(`AMC Subscription Details Saved for Branch (${targetBranchId})!`);
             onAMCBranchSelectChange();
             checkAMCStatus();
+            if (typeof renderBranches === 'function') renderBranches();
         });
     }
 
@@ -1831,6 +1835,7 @@ function setupEventListeners() {
         let enableDoctorSelect = document.getElementById('set-enable-doctor') ? document.getElementById('set-enable-doctor').checked : false;
         let enableMenuCard = document.getElementById('set-enable-menu-card') ? document.getElementById('set-enable-menu-card').checked : true;
         let enableDigitalOrders = document.getElementById('set-enable-digital-orders') ? document.getElementById('set-enable-digital-orders').checked : true;
+        let enableCustomCakeOrders = document.getElementById('set-enable-custom-cake-orders') ? document.getElementById('set-enable-custom-cake-orders').checked : true;
 
         if (!isSuperAdmin) {
             gstDefault = settings.gstDefault !== undefined ? settings.gstDefault : true;
@@ -1841,6 +1846,7 @@ function setupEventListeners() {
             enableDoctorSelect = settings.enableDoctorSelect !== undefined ? settings.enableDoctorSelect : false;
             enableMenuCard = settings.enableMenuCard !== undefined ? settings.enableMenuCard : true;
             enableDigitalOrders = settings.enableDigitalOrders !== undefined ? settings.enableDigitalOrders : true;
+            enableCustomCakeOrders = settings.enableCustomCakeOrders !== undefined ? settings.enableCustomCakeOrders : true;
         }
 
         settings = {
@@ -1861,6 +1867,7 @@ function setupEventListeners() {
             enableTableQr,
             enableMenuCard,
             enableDigitalOrders,
+            enableCustomCakeOrders,
             printMode: document.getElementById('set-print-mode') ? document.getElementById('set-print-mode').value : 'preview',
             currency: document.getElementById('set-currency').value
         };
@@ -2607,7 +2614,12 @@ function renderProducts() {
         const barcodeDisplay = (p.barcode || p.code || p.bar_code || '').trim();
 
         tr.innerHTML = `
-            <td><strong>${p.name}</strong></td>
+            <td>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    ${p.imageUrl ? `<img src="${p.imageUrl}" style="width: 32px; height: 32px; border-radius: 6px; object-fit: cover; border: 1px solid var(--border-color); flex-shrink: 0;">` : ''}
+                    <strong>${p.name}</strong>
+                </div>
+            </td>
             <td>${barcodeDisplay ? `<span class="badge" style="background: #f1f5f9; color: #334155; font-family: monospace; font-weight: 600;"><i data-lucide="barcode" style="width: 13px; height: 13px; vertical-align: middle;"></i> ${barcodeDisplay}</span>` : '<span style="color: #94a3b8;">-</span>'}</td>
             <td><span class="badge" style="background: #e2e8f0; color: #475569;">${p.category || 'General'}</span></td>
             <td><span class="badge" style="background: #e0f2fe; color: #0369a1; font-weight: 600;">${unitDisplay}</span></td>
@@ -2685,6 +2697,78 @@ function addToCartAndSwitch(id) {
     switchSection('billing');
 }
 
+function handleProductImageUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+        alert('Please select a valid image file (JPG, PNG, WEBP).');
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const img = new Image();
+        img.onload = function() {
+            const canvas = document.createElement('canvas');
+            let width = img.width;
+            let height = img.height;
+            const maxDim = 350;
+
+            if (width > height) {
+                if (width > maxDim) {
+                    height = Math.round((height * maxDim) / width);
+                    width = maxDim;
+                }
+            } else {
+                if (height > maxDim) {
+                    width = Math.round((width * maxDim) / height);
+                    height = maxDim;
+                }
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+
+            const compressedBase64 = canvas.toDataURL('image/jpeg', 0.75);
+
+            const urlInput = document.getElementById('p-image-url');
+            const preview = document.getElementById('p-image-preview');
+            const icon = document.getElementById('p-image-placeholder-icon');
+            const clearBtn = document.getElementById('p-image-clear-btn');
+
+            if (urlInput) urlInput.value = compressedBase64;
+            if (preview) {
+                preview.src = compressedBase64;
+                preview.style.display = 'block';
+            }
+            if (icon) icon.style.display = 'none';
+            if (clearBtn) clearBtn.style.display = 'inline-block';
+        };
+        img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+function clearProductImagePreview() {
+    const fileInput = document.getElementById('p-image-file');
+    const urlInput = document.getElementById('p-image-url');
+    const preview = document.getElementById('p-image-preview');
+    const icon = document.getElementById('p-image-placeholder-icon');
+    const clearBtn = document.getElementById('p-image-clear-btn');
+
+    if (fileInput) fileInput.value = '';
+    if (urlInput) urlInput.value = '';
+    if (preview) {
+        preview.src = '';
+        preview.style.display = 'none';
+    }
+    if (icon) icon.style.display = 'block';
+    if (clearBtn) clearBtn.style.display = 'none';
+}
+
 function openProductModal(id = null) {
     const modal = document.getElementById('product-modal');
     const form = document.getElementById('product-form');
@@ -2729,11 +2813,27 @@ function openProductModal(id = null) {
         document.getElementById('p-sale-price').value = p.salePrice;
         document.getElementById('p-stock').value = p.stock;
         document.getElementById('p-gst').value = p.gst;
+
+        const imgVal = p.imageUrl || p.image || '';
+        const urlInput = document.getElementById('p-image-url');
+        const preview = document.getElementById('p-image-preview');
+        const icon = document.getElementById('p-image-placeholder-icon');
+        const clearBtn = document.getElementById('p-image-clear-btn');
+        if (urlInput) urlInput.value = imgVal;
+        if (preview && imgVal) {
+            preview.src = imgVal;
+            preview.style.display = 'block';
+            if (icon) icon.style.display = 'none';
+            if (clearBtn) clearBtn.style.display = 'inline-block';
+        } else {
+            clearProductImagePreview();
+        }
     } else {
         title.textContent = 'Add New Product';
         const unitEl = document.getElementById('p-unit');
         if (unitEl) unitEl.value = 'pcs';
         updateSalesUnitOptions();
+        clearProductImagePreview();
     }
 
     modal.style.display = 'flex';
@@ -2749,6 +2849,7 @@ function handleProductSubmit(e) {
     
     const unitVal = document.getElementById('p-unit') ? document.getElementById('p-unit').value : 'pcs';
     const saleUnitVal = document.getElementById('p-sales-unit') ? document.getElementById('p-sales-unit').value : unitVal;
+    const imgUrlVal = document.getElementById('p-image-url') ? document.getElementById('p-image-url').value : '';
 
     const productData = {
         id: id || 'P' + Date.now(),
@@ -2763,7 +2864,8 @@ function handleProductSubmit(e) {
         mrp: parseFloat(document.getElementById('p-mrp').value) || 0,
         salePrice: parseFloat(document.getElementById('p-sale-price').value) || 0,
         stock: parseImportStock(document.getElementById('p-stock').value),
-        gst: parseFloat(document.getElementById('p-gst').value) || 0
+        gst: parseFloat(document.getElementById('p-gst').value) || 0,
+        imageUrl: imgUrlVal
     };
 
     if (id) {
@@ -3299,6 +3401,11 @@ function processSale(shouldPrint, shouldWhatsApp = false) {
     syncToCloud('products', products);
     syncToCloud('sales', sales);
 
+    // Free table status when bill is completed
+    if (tableName) {
+        updateTableStatusByRef(tableName, 'Available');
+    }
+
     if (shouldPrint) {
         printBill(saleData);
     } else if (shouldWhatsApp) {
@@ -3502,11 +3609,11 @@ function generateShiftSummary() {
     let creditTotal = 0;
 
     sales.forEach(sale => {
-        if (new Date(sale.date).toDateString() === todayStr) {
+        if (sale.paymentMode !== 'Pending' && sale.status !== 'Pending' && !sale.isCancelled && new Date(sale.date).toDateString() === todayStr) {
             const mode = sale.paymentMode || 'Cash';
-            if (mode === 'Cash') cashTotal += sale.grandTotal;
-            else if (mode === 'GPay') gpayTotal += sale.grandTotal;
-            else if (mode === 'Credit') creditTotal += sale.grandTotal;
+            if (mode === 'Cash') cashTotal += (sale.grandTotal || 0);
+            else if (mode === 'GPay') gpayTotal += (sale.grandTotal || 0);
+            else if (mode === 'Credit') creditTotal += (sale.grandTotal || 0);
         }
     });
 
@@ -3578,7 +3685,7 @@ function renderSalesHistory() {
         const toDate = document.getElementById('sale-date-to')?.value;
         const searchQuery = document.getElementById('sale-search')?.value.toLowerCase().trim();
 
-        let filteredSales = [...sales];
+        let filteredSales = sales.filter(s => s.paymentMode !== 'Pending' && s.status !== 'Pending' && !s.isCancelled);
 
         if (fromDate) {
             filteredSales = filteredSales.filter(s => s.date && new Date(s.date) >= new Date(fromDate));
@@ -4983,26 +5090,34 @@ function renderBranches() {
     tbody.innerHTML = '';
     branches.forEach(b => {
         const tr = document.createElement('tr');
-        const lockIcon = b.isLocked ? 'unlock' : 'lock';
-        const lockText = b.isLocked ? 'Unlock' : 'Lock';
-        const lockColor = b.isLocked ? '#16a34a' : '#dc2626';
-        const statusBadge = b.isLocked 
-            ? '<span class="badge" style="background:#fee2e2; color:#dc2626;">Locked</span>' 
-            : '<span class="badge" style="background:#dcfce7; color:#16a34a;">Active</span>';
+
+        const branchAmc = typeof getBranchAMC === 'function' ? getBranchAMC(b.id) : null;
+        const isLocked = !!(b.isLocked || (branchAmc && branchAmc.isLocked));
+
+        const statusBadge = isLocked 
+            ? '<span class="badge" style="background:#fee2e2; color:#dc2626;">🔒 Locked</span>' 
+            : '<span class="badge" style="background:#dcfce7; color:#16a34a;">✓ Active</span>';
 
         let amcStatusHtml = '<span class="badge" style="background:#f1f5f9; color:#64748b;">Not Set</span>';
         try {
-            const branchAmc = JSON.parse(localStorage.getItem('mediflow_' + b.id + '_amc'));
             if (branchAmc && branchAmc.expiryDate) {
-                const diffTime = new Date(branchAmc.expiryDate) - new Date();
+                const now = new Date();
+                const expiry = new Date(branchAmc.expiryDate);
+                const diffTime = expiry - now;
                 const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                if (diffDays < 0) {
+                const isUnlimited = (branchAmc.planName && (branchAmc.planName.toLowerCase().includes('unlimited') || branchAmc.planName.toLowerCase().includes('lifetime'))) || diffDays > 3000;
+
+                if (isUnlimited) {
+                    amcStatusHtml = '<span class="badge" style="background:#dcfce7; color:#16a34a;">Lifetime / Unlimited</span>';
+                } else if (diffDays < 0) {
                     amcStatusHtml = '<span class="badge" style="background:#fee2e2; color:#dc2626;">Expired</span>';
                 } else if (diffDays <= 15) {
                     amcStatusHtml = `<span class="badge" style="background:#fef08a; color:#a16207;">${diffDays} Days Left</span>`;
                 } else {
-                    amcStatusHtml = `<span class="badge" style="background:#dcfce7; color:#16a34a;">${diffDays} Days Left</span>`;
+                    amcStatusHtml = `<span class="badge" style="background:#dcfce7; color:#16a34a;">${diffDays} Days Left (${branchAmc.planName || 'Plan'})</span>`;
                 }
+            } else if (branchAmc && branchAmc.planName) {
+                amcStatusHtml = `<span class="badge" style="background:#dcfce7; color:#16a34a;">${branchAmc.planName}</span>`;
             }
         } catch (e) {}
 
@@ -5026,7 +5141,7 @@ function renderBranches() {
             <td>${amcStatusHtml}</td>
             <td>${statusBadge}</td>
             <td style="text-align: right; display: flex; justify-content: flex-end; gap: 0.5rem;">
-                ${b.isLocked 
+                ${isLocked 
                     ? `<button class="btn btn-outline" style="padding: 5px 10px; color: #16a34a; border-color: #16a34a;" onclick="toggleBranchLock('${b.id}')">
                            <i data-lucide="unlock" style="width: 14px;"></i> Unlock
                        </button>`
@@ -5048,22 +5163,47 @@ function renderBranches() {
  }
  
  function toggleBranchLock(id) {
-     if (sessionStorage.getItem('mediflow_user') !== 'VIKI') return;
+     const loggedInUser = sessionStorage.getItem('mediflow_user');
+     const userRole = sessionStorage.getItem('mediflow_user_role') || sessionStorage.getItem('mediflow_logged_in_role');
+     const isSuperAdmin = !loggedInUser || loggedInUser === 'VIKI' || (loggedInUser && loggedInUser.toLowerCase() === 'viki') || userRole === 'super_admin' || userRole === 'Super Admin' || loggedInUser === 'superadmin' || loggedInUser === 'admin';
+
+     if (!isSuperAdmin) {
+         alert('Only Super Admin (VIKI) can lock/unlock branches.');
+         return;
+     }
+
      const branch = branches.find(b => b.id === id);
      if (!branch) return;
-     branch.isLocked = !branch.isLocked;
+
+     const newLockedState = !branch.isLocked;
+     branch.isLocked = newLockedState;
      localStorage.setItem('mediflow_branches', JSON.stringify(branches));
+     syncToCloud('branches', branches);
+
+     if (!amcData || typeof amcData !== 'object') amcData = {};
+     if (!amcData.branches) amcData.branches = {};
+     const currentBranchAMC = typeof getBranchAMC === 'function' ? getBranchAMC(id) : {};
+     amcData.branches[id] = { ...currentBranchAMC, isLocked: newLockedState };
+     localStorage.setItem('mediflow_amc', JSON.stringify(amcData));
+     syncToCloud('amc', amcData);
+
      renderBranches();
-     
-     // Immediately check login status in case they locked their current branch
-     checkLoginStatus();
+     if (typeof onAMCBranchSelectChange === 'function') onAMCBranchSelectChange();
+     checkAMCStatus();
  }
  
  function changeBranchAMC(id) {
-     if (sessionStorage.getItem('mediflow_user') !== 'VIKI') return;
-     sessionStorage.setItem('mediflow_current_branch', id);
-     sessionStorage.setItem('mediflow_open_settings', 'true');
-     window.location.reload();
+     switchSection('settings');
+     const amcSelect = document.getElementById('amc-target-branch');
+     if (amcSelect) {
+         amcSelect.value = id;
+         if (typeof onAMCBranchSelectChange === 'function') onAMCBranchSelectChange();
+     }
+     const amcPlanInput = document.getElementById('set-amc-plan');
+     if (amcPlanInput) {
+         amcPlanInput.focus();
+         amcPlanInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+     }
  }
  
  function deleteBranch(id) {
@@ -5185,6 +5325,48 @@ function toggleMenuNotAvailableToday(productId) {
     renderMenuCard();
 }
 
+function showMenuLoadingScreen(title, sub) {
+    const overlay = document.getElementById('menu-loading-overlay');
+    if (!overlay) return;
+    if (title) {
+        const titleEl = document.getElementById('menu-loader-title');
+        if (titleEl) titleEl.textContent = title;
+    }
+    if (sub) {
+        const subEl = document.getElementById('menu-loader-sub');
+        if (subEl) subEl.textContent = sub;
+    }
+    overlay.classList.remove('hidden');
+}
+
+function hideMenuLoadingScreen() {
+    const overlay = document.getElementById('menu-loading-overlay');
+    if (overlay) {
+        setTimeout(() => {
+            overlay.classList.add('hidden');
+        }, 120);
+    }
+}
+
+function showMenuCardSkeleton() {
+    const container = document.getElementById('menu-card-content');
+    if (!container) return;
+    let skeletonHtml = '';
+    for (let i = 0; i < 6; i++) {
+        skeletonHtml += `
+            <div class="menu-skeleton-card">
+                <div class="skeleton-bar" style="height: 18px; width: 65%;"></div>
+                <div class="skeleton-bar" style="height: 14px; width: 35%;"></div>
+                <div style="display: flex; justify-content: space-between; margin-top: 10px; align-items: center;">
+                    <div class="skeleton-bar" style="height: 22px; width: 35%;"></div>
+                    <div class="skeleton-bar" style="height: 32px; width: 70px; border-radius: 8px;"></div>
+                </div>
+            </div>
+        `;
+    }
+    container.innerHTML = skeletonHtml;
+}
+
 function renderMenuCard(query) {
     const container = document.getElementById('menu-card-content');
     const searchInput = document.getElementById('menu-card-search');
@@ -5244,6 +5426,7 @@ function renderMenuCard(query) {
             </div>
         `;
         lucide.createIcons();
+        hideMenuLoadingScreen();
         return;
     }
 
@@ -5337,9 +5520,18 @@ function renderMenuCard(query) {
                 </div>
             ` : '';
 
+            // Product Image HTML if product has image
+            const imgVal = p.imageUrl || p.image || '';
+            const productImageHtml = imgVal ? `
+                <div class="menu-item-img-box" style="width: 100%; height: 140px; border-radius: 10px; overflow: hidden; margin-bottom: 10px; background: var(--bg-color); border: 1px solid var(--border-color); display: flex; align-items: center; justify-content: center; position: relative;">
+                    <img src="${imgVal}" alt="${p.name}" style="width: 100%; height: 100%; object-fit: cover;" loading="lazy">
+                </div>
+            ` : '';
+
             html += `
                 <div class="menu-item-card" style="position: relative; ${isNotAvailableToday ? 'opacity: 0.7;' : ''}">
                     ${notAvailableBadge}
+                    ${productImageHtml}
                     <div class="menu-card-top">
                         <div>
                             <div class="menu-item-title">${p.name}</div>
@@ -5385,6 +5577,7 @@ function renderMenuCard(query) {
     container.innerHTML = html;
     lucide.createIcons();
     updateMenuOrderDrawer();
+    hideMenuLoadingScreen();
 }
 
 function renderCategoryPills(categorySet) {
@@ -5402,6 +5595,9 @@ function renderCategoryPills(categorySet) {
     const inStockCount = products.filter(p => (p.stock || 0) > 0 || (p.stock >= 999999)).length;
 
     let html = `
+        <button class="category-pill" onclick="openCustomCakeModal()" style="background: linear-gradient(135deg, #ec4899, #8b5cf6); color: white; border: none; font-weight: 700; box-shadow: 0 4px 10px rgba(236,72,153,0.3);">
+            🎂 Customized Cake Order ✨
+        </button>
         <button class="category-pill ${activeMenuCategory === 'ALL' ? 'active' : ''}" onclick="setMenuCategoryFilter('ALL')">
             All Items <span class="pill-count">${products.length}</span>
         </button>
@@ -5683,6 +5879,12 @@ function handleMenuOrderSubmit(e) {
     localStorage.setItem('mediflow_digital_orders', JSON.stringify(digitalOrders));
     syncToCloud('digital_orders', digitalOrders);
 
+    // Update Table status to Occupied if Dine-In / Table QR order
+    const targetTable = ref || (typeof currentCustomerTable !== 'undefined' ? currentCustomerTable : '');
+    if (targetTable) {
+        updateTableStatusByRef(targetTable, 'Occupied');
+    }
+
     // Deduct stock
     menuOrderCart.forEach(orderItem => {
         const prodIndex = products.findIndex(p => p.id === orderItem.id);
@@ -5715,6 +5917,205 @@ function closeMenuSuccessModal() {
     if (modal) modal.style.display = 'none';
 }
 
+// --- Customized Cake Module ---
+function openCustomCakeModal() {
+    const modal = document.getElementById('custom-cake-modal');
+    if (!modal) return;
+    const form = document.getElementById('custom-cake-form');
+    if (form) form.reset();
+    clearCakePhotoPreview();
+
+    const custNameEl = document.getElementById('customer-name');
+    const custPhoneEl = document.getElementById('customer-phone');
+    if (custNameEl && custNameEl.value) document.getElementById('cake-cust-name').value = custNameEl.value;
+    if (custPhoneEl && custPhoneEl.value) document.getElementById('cake-cust-phone').value = custPhoneEl.value;
+
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(18, 0, 0, 0);
+    const dateStr = tomorrow.toISOString().slice(0, 16);
+    const dateInput = document.getElementById('cake-function-date');
+    if (dateInput) dateInput.value = dateStr;
+    if (document.getElementById('cake-weight')) document.getElementById('cake-weight').value = '1.0 Kg';
+
+    modal.style.display = 'flex';
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function closeCustomCakeModal() {
+    const modal = document.getElementById('custom-cake-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+function handleCakePhotoUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+        alert('Please select a valid image file (JPG, PNG, WEBP).');
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const img = new Image();
+        img.onload = function() {
+            const canvas = document.createElement('canvas');
+            let width = img.width;
+            let height = img.height;
+            const maxDim = 350;
+
+            if (width > height) {
+                if (width > maxDim) {
+                    height = Math.round((height * maxDim) / width);
+                    width = maxDim;
+                }
+            } else {
+                if (height > maxDim) {
+                    width = Math.round((width * maxDim) / height);
+                    height = maxDim;
+                }
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+
+            const compressedBase64 = canvas.toDataURL('image/jpeg', 0.75);
+
+            const urlInput = document.getElementById('cake-photo-url');
+            const preview = document.getElementById('cake-photo-preview');
+            const icon = document.getElementById('cake-photo-placeholder-icon');
+            const clearBtn = document.getElementById('cake-photo-clear-btn');
+
+            if (urlInput) urlInput.value = compressedBase64;
+            if (preview) {
+                preview.src = compressedBase64;
+                preview.style.display = 'block';
+            }
+            if (icon) icon.style.display = 'none';
+            if (clearBtn) clearBtn.style.display = 'inline-block';
+        };
+        img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+function clearCakePhotoPreview() {
+    const fileInput = document.getElementById('cake-photo-file');
+    const urlInput = document.getElementById('cake-photo-url');
+    const preview = document.getElementById('cake-photo-preview');
+    const icon = document.getElementById('cake-photo-placeholder-icon');
+    const clearBtn = document.getElementById('cake-photo-clear-btn');
+
+    if (fileInput) fileInput.value = '';
+    if (urlInput) urlInput.value = '';
+    if (preview) {
+        preview.src = '';
+        preview.style.display = 'none';
+    }
+    if (icon) icon.style.display = 'block';
+    if (clearBtn) clearBtn.style.display = 'none';
+}
+
+function handleCustomCakeSubmit(e) {
+    e.preventDefault();
+
+    const name = document.getElementById('cake-cust-name').value.trim();
+    const phone = document.getElementById('cake-cust-phone').value.trim();
+    const functionDate = document.getElementById('cake-function-date').value;
+    const flavor = document.getElementById('cake-flavor').value;
+    const weight = document.getElementById('cake-weight').value;
+    const message = document.getElementById('cake-message').value.trim();
+    const notes = document.getElementById('cake-notes').value.trim();
+    const photoUrl = document.getElementById('cake-photo-url') ? document.getElementById('cake-photo-url').value : '';
+
+    if (!name || !phone || !functionDate || !message) {
+        alert('Please fill in all required fields (Name, Phone, Function Date, Cake Message).');
+        return;
+    }
+
+    const orderId = 'ORD-CAKE-' + Math.floor(1000 + Math.random() * 9000);
+    const formattedDate = new Date(functionDate).toLocaleString();
+
+    const saleRecord = {
+        id: 'S' + Date.now(),
+        invoiceNo: orderId,
+        date: new Date().toISOString(),
+        customer: { name: name, phone: phone },
+        items: [{
+            id: 'CUSTOM_CAKE_' + Date.now(),
+            name: `🎂 Custom Cake (${flavor}, ${weight})`,
+            qty: 1,
+            salePrice: 0,
+            category: 'Customized Cakes',
+            cakeMessage: message,
+            functionDate: formattedDate,
+            notes: notes,
+            imageUrl: photoUrl
+        }],
+        paymentMode: 'Pending',
+        status: 'Pending',
+        orderType: '🎂 Custom Cake',
+        orderRef: `Function: ${formattedDate}`,
+        notes: `🎂 MESSAGE: "${message}" | FUNCTION DATE: ${formattedDate} ${notes ? '| NOTES: ' + notes : ''}`,
+        subtotal: 0,
+        gstTotal: 0,
+        discount: 0,
+        grandTotal: 0,
+        branchId: currentBranchId,
+        isDigitalOrder: true,
+        isCustomCake: true
+    };
+
+    sales.push(saleRecord);
+    localStorage.setItem('mediflow_sales', JSON.stringify(sales));
+    syncToCloud('sales', { data: sales });
+
+    let digitalOrders = JSON.parse(localStorage.getItem('mediflow_digital_orders')) || [];
+    digitalOrders.unshift({
+        id: orderId,
+        date: saleRecord.date,
+        customerName: name,
+        customerPhone: phone,
+        orderType: '🎂 Custom Cake',
+        orderRef: `Function: ${formattedDate}`,
+        items: saleRecord.items,
+        notes: saleRecord.notes,
+        total: 0,
+        status: 'Pending'
+    });
+    localStorage.setItem('mediflow_digital_orders', JSON.stringify(digitalOrders));
+    syncToCloud('digital_orders', digitalOrders);
+
+    closeCustomCakeModal();
+
+    if (typeof showMenuToast === 'function') {
+        showMenuToast(`🎉 Thank you ${name}! Custom Cake Order #${orderId} placed for ${formattedDate}!`);
+    }
+
+    const waMsg = encodeURIComponent(`*T7 BillPro Custom Cake Order Confirmation*\nOrder ID: #${orderId}\nCustomer: ${name}\nFunction Date: ${formattedDate}\nFlavor/Size: ${flavor} (${weight})\nMessage on Cake: "${message}"\nNotes: ${notes || 'None'}\n\nThank you for ordering with us!`);
+    const waBtn = document.getElementById('success-whatsapp-btn');
+    if (waBtn) waBtn.href = `https://wa.me/91${phone.replace(/\D/g, '')}?text=${waMsg}`;
+
+    if (document.getElementById('success-order-id')) document.getElementById('success-order-id').textContent = `#${orderId}`;
+    if (document.getElementById('success-order-customer')) document.getElementById('success-order-customer').textContent = `${name} (${phone})`;
+    if (document.getElementById('success-order-items')) document.getElementById('success-order-items').textContent = `🎂 Custom Cake (${flavor}, ${weight}) - "${message}"`;
+    if (document.getElementById('success-order-total')) document.getElementById('success-order-total').textContent = `Pending Quote`;
+
+    const successModal = document.getElementById('menu-order-success-modal');
+    if (successModal) successModal.style.display = 'flex';
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    if (typeof renderDigitalOrders === 'function') renderDigitalOrders();
+}
+window.openCustomCakeModal = openCustomCakeModal;
+window.closeCustomCakeModal = closeCustomCakeModal;
+window.handleCustomCakeSubmit = handleCustomCakeSubmit;
+window.handleCakePhotoUpload = handleCakePhotoUpload;
+window.clearCakePhotoPreview = clearCakePhotoPreview;
+
 // --- Digital Menu Orders Module ---
 function renderDigitalOrders() {
     const tbody = document.getElementById('digital-orders-table-body');
@@ -5741,7 +6142,8 @@ function renderDigitalOrders() {
             const inv = (s.invoiceNo || '').toLowerCase();
             const type = (s.orderType || '').toLowerCase();
             const ref = (s.orderRef || '').toLowerCase();
-            return custName.includes(query) || custPhone.includes(query) || inv.includes(query) || type.includes(query) || ref.includes(query);
+            const nts = (s.notes || '').toLowerCase();
+            return custName.includes(query) || custPhone.includes(query) || inv.includes(query) || type.includes(query) || ref.includes(query) || nts.includes(query);
         });
     }
 
@@ -5768,6 +6170,25 @@ function renderDigitalOrders() {
         const orderTypeStr = `${o.orderType || 'Order'}${o.orderRef ? ' (' + o.orderRef + ')' : ''}`;
         const itemsSummary = o.items ? o.items.map(i => `${i.name} x${i.qty}`).join(', ') : '-';
         
+        const isCake = o.isCustomCake || (o.orderType && o.orderType.includes('Cake'));
+        const typeBadge = isCake 
+            ? `<span class="badge" style="background: linear-gradient(135deg, #ec4899, #8b5cf6); color: white; font-weight: 700; padding: 4px 8px; font-size: 0.78rem;">🎂 ${o.orderType || 'Custom Cake'}</span>`
+            : `<span class="badge-cat">${orderTypeStr}</span>`;
+
+        let detailsHtml = `<div style="max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${itemsSummary}">${itemsSummary}</div>`;
+        if (isCake && o.notes) {
+            const cakeImg = (o.items && o.items[0] && o.items[0].imageUrl) ? o.items[0].imageUrl : '';
+            detailsHtml = `
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    ${cakeImg ? `<img src="${cakeImg}" style="width: 38px; height: 38px; border-radius: 6px; object-fit: cover; border: 1px solid var(--border-color); flex-shrink: 0;" title="Reference Cake Design">` : ''}
+                    <div>
+                        <div style="font-weight: 600; color: var(--primary-color);">${itemsSummary}</div>
+                        <div style="font-size: 0.78rem; color: var(--text-muted); font-style: italic;">${o.notes}</div>
+                    </div>
+                </div>
+            `;
+        }
+
         const currentStatus = o.status || (o.paymentMode === 'Pending' ? 'Pending' : 'Billed');
         const isPending = currentStatus === 'Pending';
         const statusBadge = isPending 
@@ -5782,8 +6203,8 @@ function renderDigitalOrders() {
                     <div style="font-weight: 600;">${custName}</div>
                     <div style="font-size: 0.8rem; color: var(--text-muted);">${custPhone}</div>
                 </td>
-                <td><span class="badge-cat">${orderTypeStr}</span></td>
-                <td style="max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${itemsSummary}">${itemsSummary}</td>
+                <td>${typeBadge}</td>
+                <td>${detailsHtml}</td>
                 <td><strong style="color: var(--primary-color);">${settings.currency}${(parseFloat(o.grandTotal) || 0).toFixed(2)}</strong></td>
                 <td>${statusBadge}</td>
                 <td style="text-align: right;">
@@ -5845,6 +6266,19 @@ function loadDigitalOrderToBilling(orderId) {
         if (custPhoneEl) custPhoneEl.value = order.customer.phone || '';
     }
 
+    // Pre-fill Billing Table Select if order was for a Table
+    if (order.orderRef || order.tableName) {
+        const targetTable = order.orderRef || order.tableName;
+        const billingSelect = document.getElementById('billing-table-select');
+        if (billingSelect) {
+            const cleanTarget = String(targetTable).trim().toLowerCase();
+            const matchingOpt = Array.from(billingSelect.options).find(opt => opt.value.toLowerCase() === cleanTarget || cleanTarget.includes(opt.value.toLowerCase()));
+            if (matchingOpt) {
+                billingSelect.value = matchingOpt.value;
+            }
+        }
+    }
+
     // Clear order from digital orders list once sent to billing
     sales.splice(orderIndex, 1);
     localStorage.setItem('mediflow_sales', JSON.stringify(sales));
@@ -5856,14 +6290,42 @@ function loadDigitalOrderToBilling(orderId) {
 }
 
 function deleteDigitalOrder(orderId) {
-    if (!confirm('Are you sure you want to delete/clear this digital order?')) return;
+    if (!confirm('Are you sure you want to cancel/delete this digital order? Stock will be restored.')) return;
     const index = sales.findIndex(s => s.id === orderId || s.invoiceNo === orderId);
     if (index > -1) {
+        const order = sales[index];
+
+        // Restore stock for cancelled order
+        if (order.items && Array.isArray(order.items)) {
+            order.items.forEach(item => {
+                const pIndex = products.findIndex(p => p.id === item.id);
+                if (pIndex > -1 && products[pIndex].stock < 999999) {
+                    products[pIndex].stock += Number(item.qty || 1);
+                }
+            });
+            localStorage.setItem('mediflow_products', JSON.stringify(products));
+            syncToCloud('products', products);
+        }
+
+        const targetTable = order.orderRef || order.tableName || '';
+        if (targetTable) {
+            updateTableStatusByRef(targetTable, 'Available');
+        }
+
+        // Clean from digital_orders list
+        let digitalOrders = JSON.parse(localStorage.getItem('mediflow_digital_orders')) || [];
+        digitalOrders = digitalOrders.filter(d => d.id !== orderId && d.id !== order.invoiceNo);
+        localStorage.setItem('mediflow_digital_orders', JSON.stringify(digitalOrders));
+        syncToCloud('digital_orders', digitalOrders);
+
         sales.splice(index, 1);
         localStorage.setItem('mediflow_sales', JSON.stringify(sales));
         syncToCloud('sales', { data: sales });
+
         renderDigitalOrders();
-        showMenuToast('Digital order cleared successfully.');
+        if (typeof activeSection !== 'undefined' && activeSection === 'products') renderProducts();
+        if (typeof activeSection !== 'undefined' && activeSection === 'sales') renderSalesHistory();
+        showMenuToast('Digital order cancelled & stock restored successfully.');
     }
 }
 
@@ -5918,7 +6380,7 @@ function generateReport() {
         };
         title.textContent = (titleMap[type] || 'Sales Report') + ` (${start} to ${end})`;
         
-        let filteredSales = sales.filter(s => isDateInRange(s.date) && !s.isReturn);
+        let filteredSales = sales.filter(s => isDateInRange(s.date) && !s.isReturn && s.paymentMode !== 'Pending' && s.status !== 'Pending' && !s.isCancelled);
 
         if (type === 'sales_product') {
             htmlHead = `<tr><th>Product Name</th><th>Category</th><th>Qty Sold</th><th>Bills Count</th><th>Total Revenue</th></tr>`;
@@ -7056,6 +7518,9 @@ function enableCustomerMenuView() {
     isCustomerViewActive = true;
     if (document.body) document.body.classList.add('customer-mode');
     
+    if (typeof showMenuLoadingScreen === 'function') showMenuLoadingScreen('Loading Digital Menu...', 'Connecting live branch catalog...');
+    if (typeof showMenuCardSkeleton === 'function') showMenuCardSkeleton();
+
     const branchFromUrl = typeof getBranchIdFromURL === 'function' ? getBranchIdFromURL() : null;
     if (branchFromUrl) {
         currentBranchId = branchFromUrl;
@@ -7092,8 +7557,13 @@ function enableCustomerMenuView() {
     }
 
     switchSection('menu-card');
-    if (typeof renderMenuCard === 'function') renderMenuCard();
-    if (typeof lucide !== 'undefined') lucide.createIcons();
+    
+    // Async non-blocking render frame
+    requestAnimationFrame(() => {
+        if (typeof renderMenuCard === 'function') renderMenuCard();
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+        if (typeof hideMenuLoadingScreen === 'function') hideMenuLoadingScreen();
+    });
 }
 
 function openAdminLoginFromCustomerView() {
@@ -7159,6 +7629,7 @@ function loadSettingsFields() {
     if (document.getElementById('set-enable-table-qr')) document.getElementById('set-enable-table-qr').checked = (settings.enableTableQr !== false);
     if (document.getElementById('set-enable-menu-card')) document.getElementById('set-enable-menu-card').checked = (settings.enableMenuCard !== false);
     if (document.getElementById('set-enable-digital-orders')) document.getElementById('set-enable-digital-orders').checked = (settings.enableDigitalOrders !== false);
+    if (document.getElementById('set-enable-custom-cake-orders')) document.getElementById('set-enable-custom-cake-orders').checked = (settings.enableCustomCakeOrders !== false);
     if (document.getElementById('set-print-mode')) document.getElementById('set-print-mode').value = settings.printMode || 'preview';
     if (document.getElementById('set-currency')) document.getElementById('set-currency').value = settings.currency || '₹';
 
@@ -7172,6 +7643,11 @@ function loadSettingsFields() {
 
     const navDigitalOrders = document.querySelector('.nav-item[data-section="digital-orders"]');
     if (navDigitalOrders) navDigitalOrders.style.display = (settings.enableDigitalOrders !== false) ? 'flex' : 'none';
+
+    const cakeHeroBtn = document.getElementById('btn-custom-cake-hero');
+    if (cakeHeroBtn) cakeHeroBtn.style.display = (settings.enableCustomCakeOrders !== false) ? 'inline-flex' : 'none';
+    const cakeCategoryPill = document.getElementById('category-pill-custom-cake');
+    if (cakeCategoryPill) cakeCategoryPill.style.display = (settings.enableCustomCakeOrders !== false) ? 'inline-flex' : 'none';
 
     const navDoctorMgmt = document.getElementById('nav-doctor-mgmt');
     if (navDoctorMgmt) navDoctorMgmt.style.display = (settings.enableDoctorSelect !== false) ? 'flex' : 'none';
@@ -8272,7 +8748,8 @@ function applyBranchSettingsPermissions() {
         'set-enable-waiter',
         'set-enable-doctor',
         'set-enable-menu-card',
-        'set-enable-digital-orders'
+        'set-enable-digital-orders',
+        'set-enable-custom-cake-orders'
     ];
 
     if (isSuperAdmin) {
@@ -8667,6 +9144,19 @@ function renderTableManagement() {
 
 function setTableStatus(idx, status) {
     if (tableList[idx]) { tableList[idx].status = status; saveTableList(); renderTableManagement(); }
+}
+
+function updateTableStatusByRef(tableName, newStatus) {
+    if (!tableName) return;
+    loadTableList();
+    if (!tableList || tableList.length === 0) return;
+    const cleanName = String(tableName).trim().toLowerCase();
+    const table = tableList.find(t => t.name.toLowerCase() === cleanName || cleanName.includes(t.name.toLowerCase()) || t.name.toLowerCase().includes(cleanName));
+    if (table) {
+        table.status = newStatus;
+        saveTableList();
+        if (typeof renderTableManagement === 'function') renderTableManagement();
+    }
 }
 
 function openAddTableModal(idx = null) {
