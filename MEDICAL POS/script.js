@@ -1,8 +1,11 @@
 // T7 BillPro - Core Logic
 
 // Storage Interceptors for Multi-Branch (Defined FIRST before any storage access)
+let cashTransactions = [];
+let cashOpenings = {};
+
 let currentBranchId = sessionStorage.getItem('mediflow_current_branch') || 'branch_default';
-const branchSpecificKeys = ['mediflow_products', 'mediflow_sales', 'mediflow_settings', 'mediflow_purchases', 'mediflow_expenses', 'mediflow_categories', 'mediflow_expense_categories', 'mediflow_customers', 'mediflow_customer_payments', 'mediflow_suppliers', 'mediflow_supplier_payments', 'mediflow_held_carts', 'mediflow_amc', 'mediflow_staff', 'mediflow_attendance', 'mediflow_staff_advances', 'mediflow_salary_payments', 'mediflow_digital_orders', 'mediflow_doctors', 'mediflow_tables', 'mediflow_stock_in_logs'];
+const branchSpecificKeys = ['mediflow_products', 'mediflow_sales', 'mediflow_settings', 'mediflow_purchases', 'mediflow_expenses', 'mediflow_categories', 'mediflow_expense_categories', 'mediflow_customers', 'mediflow_customer_payments', 'mediflow_suppliers', 'mediflow_supplier_payments', 'mediflow_held_carts', 'mediflow_amc', 'mediflow_staff', 'mediflow_attendance', 'mediflow_staff_advances', 'mediflow_salary_payments', 'mediflow_digital_orders', 'mediflow_doctors', 'mediflow_tables', 'mediflow_stock_in_logs', 'mediflow_cake_flavors', 'mediflow_cancelled_digital_orders', 'mediflow_cash_transactions', 'mediflow_cash_openings'];
 
 const originalGetItem = localStorage.getItem;
 const originalSetItem = localStorage.setItem;
@@ -54,13 +57,17 @@ localStorage.setItem = function(key, value) {
             'mediflow_held_carts': 'held_carts',
             'mediflow_amc': 'amc',
             'mediflow_tables': 'tables',
+            'mediflow_cake_flavors': 'cake_flavors',
+            'mediflow_cancelled_digital_orders': 'cancelled_digital_orders',
+            'mediflow_cash_transactions': 'cash_transactions',
+            'mediflow_cash_openings': 'cash_openings',
             'mediflow_branch_settings_permissions': 'branch_settings_permissions'
         };
 
         const targetCol = keyMap[cleanKey] || keyMap[key];
         if (targetCol) {
              try {
-                 const objectCols = ['settings', 'amc', 'branch_settings_permissions'];
+                 const objectCols = ['settings', 'amc', 'branch_settings_permissions', 'cash_openings'];
                  const payload = objectCols.includes(targetCol) ? JSON.parse(value) : { data: JSON.parse(value) };
                  if (typeof syncToCloud === 'function') syncToCloud(targetCol, payload);
              } catch(e) {
@@ -230,6 +237,68 @@ let currentUser = sessionStorage.getItem('mediflow_user') || null;
 let currentTheme = localStorage.getItem('mediflow_theme') || 'light';
 let admins = JSON.parse(localStorage.getItem('mediflow_admins')) || [];
 
+
+// --- Phase 1 Security Hardening ---
+function getCurrentActor() {
+    const username = (sessionStorage.getItem('mediflow_user') || '').trim();
+    const role = (sessionStorage.getItem('mediflow_user_role') || sessionStorage.getItem('mediflow_logged_in_role') || '').trim();
+    const branchId = sessionStorage.getItem('mediflow_current_branch') || currentBranchId || 'branch_default';
+    return { username: username || 'unknown', role: role || 'unknown', branchId };
+}
+
+function isSuperAdminSession() {
+    const actor = getCurrentActor();
+    return actor.username.toLowerCase() === 'viki' ||
+        actor.username.toLowerCase() === 'superadmin' ||
+        actor.role.toLowerCase() === 'super_admin' ||
+        actor.role.toLowerCase() === 'super admin';
+}
+
+function requireSuperAdmin(actionName) {
+    if (isSuperAdminSession()) return true;
+    console.warn(`Security: blocked ${actionName} for non-Super Admin session.`);
+    alert('🔒 Only Super Admin can perform this action.');
+    return false;
+}
+
+async function auditSecurityAction(action, details = {}) {
+    const actor = getCurrentActor();
+    const entry = {
+        id: 'AUD_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+        timestamp: new Date().toISOString(),
+        action,
+        username: actor.username,
+        role: actor.role,
+        branchId: actor.branchId,
+        details
+    };
+    try {
+        const logs = JSON.parse(originalGetItem.call(localStorage, 'mediflow_security_audit_logs') || '[]');
+        logs.unshift(entry);
+        originalSetItem.call(localStorage, 'mediflow_security_audit_logs', JSON.stringify(logs.slice(0, 1000)));
+    } catch (e) { console.warn('Audit local save failed', e); }
+    if (isFirebaseEnabled && db) {
+        try {
+            const current = JSON.parse(originalGetItem.call(localStorage, 'mediflow_security_audit_logs') || '[]');
+            await db.collection('mediflow_data').doc('security_audit_logs').set({
+                payload: current.slice(0, 1000),
+                updatedAt: new Date().toISOString()
+            });
+        } catch (e) { console.warn('Audit cloud save failed', e); }
+    }
+}
+
+function validateCurrentBranchAccess() {
+    const branchId = sessionStorage.getItem('mediflow_current_branch') || currentBranchId || 'branch_default';
+    if (!branches.some(b => b.id === branchId)) {
+        const fallback = branches[0]?.id || 'branch_default';
+        currentBranchId = fallback;
+        sessionStorage.setItem('mediflow_current_branch', fallback);
+        return fallback;
+    }
+    return branchId;
+}
+
 // Migrate legacy data if branches are empty
 if (branches.length === 0) {
     branches.push({ id: 'branch_default', name: 'Main Branch' });
@@ -266,6 +335,7 @@ let salaryPayments = [];
 let stockInLogs = [];
 
 function loadBranchData() {
+    currentBranchId = validateCurrentBranchAccess();
     sales = getLegacyOrBranchData('mediflow_sales') || [];
     purchases = getLegacyOrBranchData('mediflow_purchases') || [];
     stockInLogs = getLegacyOrBranchData('mediflow_stock_in_logs') || [];
@@ -340,6 +410,8 @@ function loadBranchData() {
     attendanceLogs = getLegacyOrBranchData('mediflow_attendance') || [];
     staffAdvances = getLegacyOrBranchData('mediflow_staff_advances') || [];
     salaryPayments = getLegacyOrBranchData('mediflow_salary_payments') || [];
+    cashTransactions = getLegacyOrBranchData('mediflow_cash_transactions') || [];
+    cashOpenings = getLegacyOrBranchData('mediflow_cash_openings') || {};
     doctorsList = getLegacyOrBranchData('mediflow_doctors') || [];
     cart = [];
     if (typeof renderBarcodeProductOptions === 'function') renderBarcodeProductOptions();
@@ -377,30 +449,6 @@ function initFirebase() {
     }
 }
 
-function initApp() {
-    try {
-        if (typeof renderDashboard === 'function') renderDashboard();
-        if (typeof renderProducts === 'function') renderProducts();
-        if (typeof renderProductDropdown === 'function') renderProductDropdown();
-        if (typeof renderSupplierDropdown === 'function') renderSupplierDropdown();
-        if (typeof renderSalesHistory === 'function') renderSalesHistory();
-        if (typeof renderPurchases === 'function') renderPurchases();
-        if (typeof renderExpenses === 'function') renderExpenses();
-        if (typeof renderCustomers === 'function') renderCustomers();
-        if (typeof renderSuppliers === 'function') renderSuppliers();
-        if (typeof renderAdmins === 'function') renderAdmins();
-        if (typeof renderBranches === 'function') renderBranches();
-        if (typeof renderCategoryManagement === 'function') renderCategoryManagement();
-        if (typeof renderExpenseCategoryManagement === 'function') renderExpenseCategoryManagement();
-        if (typeof renderCakeFlavorsManagement === 'function') renderCakeFlavorsManagement();
-        if (typeof renderStaffManagement === 'function') renderStaffManagement();
-        if (typeof switchSection === 'function' && typeof activeSection !== 'undefined') {
-            switchSection(activeSection);
-        }
-    } catch (e) {
-        console.error("Error in initApp:", e);
-    }
-}
 window.initApp = initApp;
 
 async function syncToCloud(collectionName, documentData) {
@@ -440,7 +488,7 @@ async function syncFromCloud() {
     if (!isFirebaseEnabled || !db) return;
     try {
         isSyncingFromCloud = true;
-        const collections = ['products', 'sales', 'settings', 'purchases', 'expenses', 'categories', 'expense_categories', 'customers', 'suppliers', 'admins', 'supplier_payments', 'customer_payments', 'branches', 'staff', 'attendance', 'staff_advances', 'salary_payments', 'digital_orders', 'doctors', 'held_carts', 'amc', 'tables', 'branch_settings_permissions'];
+        const collections = ['products', 'sales', 'settings', 'purchases', 'expenses', 'categories', 'expense_categories', 'customers', 'suppliers', 'admins', 'supplier_payments', 'customer_payments', 'branches', 'staff', 'attendance', 'staff_advances', 'salary_payments', 'digital_orders', 'doctors', 'held_carts', 'amc', 'tables', 'branch_settings_permissions', 'cash_transactions', 'cash_openings'];
         
         let hasUpdates = false;
         const globalCols = ['admins', 'branches', 'amc', 'branch_settings_permissions'];
@@ -600,6 +648,13 @@ function setupCloudListener() {
                         } else if (colKey === 'branches') {
                             branches = extractArrayData(cloudData);
                             localStorage.setItem('mediflow_branches', JSON.stringify(branches));
+                        } else if (colKey === 'cash_openings') {
+                            let parsedOpenings = cloudData;
+                            if (parsedOpenings && parsedOpenings.payload && typeof parsedOpenings.payload === 'object' && !Array.isArray(parsedOpenings.payload)) parsedOpenings = parsedOpenings.payload;
+                            if (parsedOpenings && typeof parsedOpenings === 'object' && !Array.isArray(parsedOpenings)) {
+                                cashOpenings = parsedOpenings;
+                                localStorage.setItem('mediflow_cash_openings', JSON.stringify(cashOpenings));
+                            }
                         } else {
                             const arrayData = extractArrayData(cloudData);
                             let localKey = 'mediflow_' + colKey;
@@ -623,6 +678,8 @@ function setupCloudListener() {
                             else if (colKey === 'admins') admins = arrayData;
                             else if (colKey === 'supplier_payments') supplierPayments = arrayData;
                             else if (colKey === 'customer_payments') customerPayments = arrayData;
+                            else if (colKey === 'cash_transactions') cashTransactions = arrayData;
+                            else if (colKey === 'cash_openings') cashOpenings = arrayData;
 
                             window[colKey] = arrayData;
                             localStorage.setItem(localKey, JSON.stringify(arrayData));
@@ -929,6 +986,9 @@ function setupLoginHandler() {
         if (user === 'VIKI' && pass === 'VIKI1101') {
             sessionStorage.setItem('mediflow_logged_in', 'true');
             sessionStorage.setItem('mediflow_user', 'VIKI');
+            sessionStorage.setItem('mediflow_user_role', 'super_admin');
+            sessionStorage.setItem('mediflow_current_branch', sessionStorage.getItem('mediflow_current_branch') || 'branch_default');
+            auditSecurityAction('superadmin_login');
             checkLoginStatus();
             try { 
                 const hasBackupDir = await getBackupDirHandle();
@@ -946,6 +1006,9 @@ function setupLoginHandler() {
             }
             sessionStorage.setItem('mediflow_logged_in', 'true');
             sessionStorage.setItem('mediflow_user', user);
+            sessionStorage.setItem('mediflow_user_role', found.role || 'admin');
+            sessionStorage.setItem('mediflow_current_branch', found.branchId || 'branch_default');
+            auditSecurityAction('admin_login', { branchId: found.branchId || 'branch_default' });
             checkLoginStatus();
             try { 
                 const hasBackupDir = await getBackupDirHandle();
@@ -1466,6 +1529,9 @@ function switchSection(sectionId) {
     if (sectionId === 'products') {
         ensureAllCategoriesFromProducts();
         renderProducts();
+    }
+    if (sectionId === 'balance') {
+        initBalancePage();
     }
     if (sectionId === 'reports') {
         const today = new Date().toISOString().split('T')[0];
@@ -3307,26 +3373,6 @@ function renderCartTabs() {
 }
 
 // --- Return Mode ---
-function toggleReturnMode() {
-    isReturnMode = !isReturnMode;
-    const btn = document.getElementById('return-mode-btn');
-    if (isReturnMode) {
-        btn.innerHTML = '<i data-lucide="corner-down-left"></i> Exit Return Mode';
-        btn.classList.remove('btn-outline');
-        btn.style.backgroundColor = 'var(--danger-color)';
-        btn.style.color = 'white';
-        // Add visual indicator to billing search area
-        document.querySelector('.cart-section h2') && (document.querySelector('.cart-section h2').textContent = 'Billing Terminal - RETURN MODE');
-    } else {
-        btn.innerHTML = '<i data-lucide="corner-down-left"></i> Return Bill';
-        btn.classList.add('btn-outline');
-        btn.style.backgroundColor = 'transparent';
-        btn.style.color = 'var(--danger-color)';
-        document.querySelector('.cart-section h2') && (document.querySelector('.cart-section h2').textContent = 'Billing Terminal');
-    }
-    lucide.createIcons();
-}
-
 // --- Sale Processing ---
 function setPayMode(mode, btn) {
     currentPayMode = mode;
@@ -4430,7 +4476,8 @@ function handleExpenseSubmit(e) {
         category: category,
         description: (document.getElementById('exp-desc').value || '').trim(),
         amount: parseFloat(document.getElementById('exp-amount').value) || 0,
-        date: document.getElementById('exp-date').value || new Date().toISOString().split('T')[0]
+        date: document.getElementById('exp-date').value || new Date().toISOString().split('T')[0],
+        paymentMode: document.getElementById('exp-payment-mode')?.value || 'Cash'
     };
 
     expenses.push(expenseData);
@@ -4570,6 +4617,8 @@ function exportData() {
         customers: JSON.parse(localStorage.getItem('mediflow_customers')) || [],
         suppliers: JSON.parse(localStorage.getItem('mediflow_suppliers')) || [],
         supplierPayments: JSON.parse(localStorage.getItem('mediflow_supplier_payments')) || [],
+        cashTransactions: JSON.parse(localStorage.getItem('mediflow_cash_transactions')) || [],
+        cashOpenings: JSON.parse(localStorage.getItem('mediflow_cash_openings')) || {},
         theme: localStorage.getItem('mediflow_theme') || 'light',
         exportDate: new Date().toISOString()
     };
@@ -4613,6 +4662,8 @@ function importData(e) {
             if (data.customers) localStorage.setItem('mediflow_customers', JSON.stringify(data.customers));
             if (data.suppliers) localStorage.setItem('mediflow_suppliers', JSON.stringify(data.suppliers));
             if (data.supplierPayments) localStorage.setItem('mediflow_supplier_payments', JSON.stringify(data.supplierPayments));
+            if (data.cashTransactions) localStorage.setItem('mediflow_cash_transactions', JSON.stringify(data.cashTransactions));
+            if (data.cashOpenings) localStorage.setItem('mediflow_cash_openings', JSON.stringify(data.cashOpenings));
             if (data.theme) localStorage.setItem('mediflow_theme', data.theme);
 
             alert('Data imported successfully! The application will now reload.');
@@ -4640,18 +4691,6 @@ function exportProducts() {
 }
 
 // --- CSV Helper Functions ---
-function downloadBlob(content, filename, contentType) {
-    const blob = new Blob([content], { type: contentType });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-}
-
 function downloadBlob(content, filename, contentType) {
     const blob = new Blob([content], { type: contentType });
     const url = URL.createObjectURL(blob);
@@ -5905,10 +5944,7 @@ window.toggleAdminModalPassVisibility = toggleAdminModalPassVisibility;
 window.toggleAdminTablePassVisibility = toggleAdminTablePassVisibility;
 
 function deleteAdmin(id) {
-    if (sessionStorage.getItem('mediflow_user') !== 'VIKI') {
-        alert('Only the Super Admin (VIKI) can delete accounts.');
-        return;
-    }
+    if (!requireSuperAdmin('deleteAdmin')) return;
     if (confirm('Are you sure you want to delete this account?')) {
         admins = admins.filter(a => a.id !== id);
         localStorage.setItem('mediflow_admins', JSON.stringify(admins));
@@ -5997,14 +6033,7 @@ function renderBranches() {
  }
  
  function toggleBranchLock(id) {
-     const loggedInUser = sessionStorage.getItem('mediflow_user');
-     const userRole = sessionStorage.getItem('mediflow_user_role') || sessionStorage.getItem('mediflow_logged_in_role');
-     const isSuperAdmin = !loggedInUser || loggedInUser === 'VIKI' || (loggedInUser && loggedInUser.toLowerCase() === 'viki') || userRole === 'super_admin' || userRole === 'Super Admin' || loggedInUser === 'superadmin' || loggedInUser === 'admin';
-
-     if (!isSuperAdmin) {
-         alert('Only Super Admin (VIKI) can lock/unlock branches.');
-         return;
-     }
+     if (!requireSuperAdmin('toggleBranchLock')) return;
 
      const branch = branches.find(b => b.id === id);
      if (!branch) return;
@@ -6013,6 +6042,7 @@ function renderBranches() {
      branch.isLocked = newLockedState;
      localStorage.setItem('mediflow_branches', JSON.stringify(branches));
      syncToCloud('branches', branches);
+     auditSecurityAction(newLockedState ? 'lock_branch' : 'unlock_branch', { branchId: id });
 
      if (!amcData || typeof amcData !== 'object') amcData = {};
      if (!amcData.branches) amcData.branches = {};
@@ -6039,38 +6069,50 @@ function renderBranches() {
          amcPlanInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
      }
  }
- 
- function deleteBranch(id) {
-     if (sessionStorage.getItem('mediflow_user') !== 'VIKI') {
-         alert('Only the Super Admin (VIKI) can delete branches.');
-         return;
-     }
-     if (id === 'branch_default') {
-         alert('The default Main Branch cannot be deleted.');
-         return;
-     }
-     if (confirm('Are you sure you want to delete this branch? All local data for this branch will be removed.')) {
-         // Filter out the branch
-         branches = branches.filter(b => b.id !== id);
-         localStorage.setItem('mediflow_branches', JSON.stringify(branches));
-         
-         // Remove branch-specific local storage data
-         branchSpecificKeys.forEach(key => {
-             const actualKey = `mediflow_${id}_${key.replace('mediflow_', '')}`;
-             localStorage.removeItem(actualKey);
-         });
-         
-         // If current branch was the deleted one, reset current branch
-         if (sessionStorage.getItem('mediflow_current_branch') === id) {
-             sessionStorage.setItem('mediflow_current_branch', 'branch_default');
-         }
-         
-         renderBranches();
-         setupGlobalBranchSelector('superadmin');
-         alert('Branch deleted successfully.');
-         window.location.reload();
-     }
- }
+
+async function deleteBranch(id) {
+    if (!requireSuperAdmin('deleteBranch')) return;
+    validateCurrentBranchAccess();
+    if (!id || id === 'branch_default') { alert('The default Main Branch cannot be deleted.'); return; }
+    const branch = branches.find(b => b.id === id);
+    if (!branch) { alert('Branch not found.'); return; }
+    if (!confirm(`⚠️ DELETE BRANCH
+
+Branch: ${branch.name}
+ID: ${id}
+
+This will permanently remove this branch and its branch-specific data.
+
+Continue?`)) return;
+    try {
+        branches = branches.filter(b => b.id !== id);
+        localStorage.setItem('mediflow_branches', JSON.stringify(branches));
+        await auditSecurityAction('delete_branch', { deletedBranchId: id, deletedBranchName: branch.name });
+        branchSpecificKeys.forEach(key => localStorage.removeItem(`mediflow_${id}_${key.replace(/^mediflow_/, '')}`));
+        if (amcData && typeof amcData === 'object' && amcData.branches) {
+            delete amcData.branches[id];
+            localStorage.setItem('mediflow_amc', JSON.stringify(amcData));
+        }
+        // Save the global branch registry so the deleted branch does not return on refresh.
+        await syncToCloud('branches', { data: branches });
+        if (amcData && typeof amcData === 'object') await syncToCloud('amc', amcData);
+        // Delete all branch-scoped Firestore documents too.
+        if (isFirebaseEnabled && db) {
+            const collections = ['products','sales','settings','purchases','expenses','categories','expense_categories','customers','suppliers',
+                'supplier_payments','customer_payments','staff','attendance','staff_advances','salary_payments','digital_orders','doctors',
+                'held_carts','tables','stock_in_logs','cake_flavors','cancelled_digital_orders'];
+            await Promise.all(collections.map(col => db.collection('mediflow_data').doc(`${id}_${col}`).delete()));
+        }
+        if (sessionStorage.getItem('mediflow_current_branch') === id) sessionStorage.setItem('mediflow_current_branch', branches[0]?.id || 'branch_default');
+        renderBranches();
+        setupGlobalBranchSelector('superadmin');
+        alert(`Branch "${branch.name}" deleted successfully.`);
+        window.location.reload();
+    } catch (e) {
+        console.error('Branch deletion failed:', e);
+        alert('Branch deletion failed: ' + (e?.message || e));
+    }
+}
 
 function openBranchModal() {
     document.getElementById('branch-name').value = '';
@@ -6084,15 +6126,14 @@ function closeBranchModal() {
 
 document.getElementById('branch-form')?.addEventListener('submit', (e) => {
     e.preventDefault();
-    if (sessionStorage.getItem('mediflow_user') !== 'VIKI') {
-        alert('Only Super Admin can create branches.');
-        return;
-    }
+    if (!requireSuperAdmin('createBranch')) return;
     const name = document.getElementById('branch-name').value;
     const location = document.getElementById('branch-location').value;
     const newId = 'branch_' + Date.now();
-    branches.push({ id: newId, name: name, location: location });
+    branches.push({ id: newId, name: name, location: location, branchId: newId, createdAt: new Date().toISOString(), createdBy: getCurrentActor().username });
     localStorage.setItem('mediflow_branches', JSON.stringify(branches));
+    syncToCloud('branches', { data: branches });
+    auditSecurityAction('create_branch', { branchId: newId, branchName: name });
     closeBranchModal();
     renderBranches();
     
@@ -6649,6 +6690,10 @@ function sendOrderToBillingTerminal() {
 
 function handleMenuOrderSubmit(e) {
     e.preventDefault();
+    if (isCustomerViewActive && (getTableIdFromURL() || getTableFromURL()) && !validateCustomerTable()) {
+        alert('This table QR code is invalid or belongs to another branch. Please scan the correct table QR code.');
+        return;
+    }
     if (!menuOrderCart || menuOrderCart.length === 0) {
         alert('Cart is empty!');
         return;
@@ -6657,7 +6702,8 @@ function handleMenuOrderSubmit(e) {
     const name = document.getElementById('morder-name').value.trim();
     const phone = document.getElementById('morder-phone').value.trim();
     const orderType = document.getElementById('morder-type').value;
-    const ref = document.getElementById('morder-ref').value.trim();
+    const typedRef = document.getElementById('morder-ref').value.trim();
+    const ref = (isCustomerViewActive && currentCustomerTableValid) ? currentCustomerTable : typedRef;
     const notes = document.getElementById('morder-notes').value.trim();
 
     let grandTotal = 0;
@@ -6688,6 +6734,8 @@ function handleMenuOrderSubmit(e) {
         discount: 0,
         grandTotal: grandTotal,
         branchId: currentBranchId,
+        tableId: currentCustomerTableId || '',
+        tableName: currentCustomerTable || '',
         isDigitalOrder: true
     };
 
@@ -6708,6 +6756,9 @@ function handleMenuOrderSubmit(e) {
         items: saleRecord.items,
         totalAmount: grandTotal,
         status: 'Pending',
+        branchId: currentBranchId,
+        tableId: currentCustomerTableId || '',
+        tableName: currentCustomerTable || '',
         createdAt: new Date().toLocaleString()
     });
     localStorage.setItem('mediflow_digital_orders', JSON.stringify(digitalOrders));
@@ -6727,6 +6778,7 @@ function handleMenuOrderSubmit(e) {
         }
     });
     localStorage.setItem('mediflow_products', JSON.stringify(products));
+    syncToCloud('products', { data: products });
 
     closeMenuOrderModal();
 
@@ -6746,9 +6798,59 @@ function handleMenuOrderSubmit(e) {
     clearMenuOrder();
 }
 
-function closeMenuSuccessModal() {
+
+// Compatibility handlers for the legacy customer checkout modal.
+// The current digital-menu engine uses #menu-order-modal; these handlers keep
+// the older #menu-checkout-modal markup functional instead of throwing errors.
+function closeMenuOrderCheckoutModal() {
+    const modal = document.getElementById('menu-checkout-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+function closeMenuOrderSuccessModal() {
     const modal = document.getElementById('menu-order-success-modal');
     if (modal) modal.style.display = 'none';
+}
+
+function submitCustomerDigitalOrder(e) {
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+
+    if (!Array.isArray(menuOrderCart) || menuOrderCart.length === 0) {
+        alert('Your digital order cart is empty!');
+        return;
+    }
+
+    // Reuse the tested order engine by copying legacy checkout values
+    // into the current order form fields.
+    const copy = (fromId, toId) => {
+        const from = document.getElementById(fromId);
+        const to = document.getElementById(toId);
+        if (from && to) to.value = from.value || '';
+    };
+
+    copy('cust-order-name', 'morder-name');
+    copy('cust-order-phone', 'morder-phone');
+    copy('cust-order-type', 'morder-type');
+    copy('cust-order-notes', 'morder-notes');
+
+    const currentRef = document.getElementById('morder-ref');
+    const notes = document.getElementById('cust-order-notes');
+    if (currentRef && !currentRef.value && notes && /^table\s*[-#]?\s*\S+/i.test(notes.value.trim())) {
+        currentRef.value = notes.value.trim();
+    }
+
+    const currentForm = document.getElementById('menu-order-form');
+    if (currentForm) {
+        const eventProxy = {
+            preventDefault() {},
+        };
+        handleMenuOrderSubmit(eventProxy);
+    } else {
+        alert('Digital order form is unavailable. Please refresh the page and try again.');
+        return;
+    }
+
+    closeMenuOrderCheckoutModal();
 }
 
 // --- Customized Cake Module ---
@@ -7208,235 +7310,6 @@ function deleteDigitalOrder(orderId) {
 }
 
 // --- Reports Module ---
-function generateReport() {
-    const type = document.getElementById('report-type').value;
-    const start = document.getElementById('report-start').value;
-    const end = document.getElementById('report-end').value;
-    
-    const head = document.getElementById('report-table-head');
-    const body = document.getElementById('report-table-body');
-    const foot = document.getElementById('report-table-foot');
-    const title = document.getElementById('report-table-title');
-    
-    let htmlHead = '';
-    let htmlBody = '';
-    let htmlFoot = '';
-    let totalItems = 0;
-    let totalValue = 0;
-    
-    const isDateInRange = (dateStr) => {
-        if (!dateStr) return false;
-        // Handle ISO dates and simple YYYY-MM-DD
-        const d = dateStr.includes('T') ? new Date(dateStr).toISOString().split('T')[0] : dateStr;
-        return d >= start && d <= end;
-    };
-
-    if (type === 'stock') {
-        title.textContent = 'Stock Report';
-        htmlHead = `<tr><th>Item Code</th><th>Name</th><th>Category</th><th>Stock</th><th>MRP</th><th>Total Value</th></tr>`;
-        products.forEach(p => {
-            const val = (p.stock || 0) * (parseFloat(p.mrp) || 0);
-            totalValue += val;
-            totalItems++;
-            htmlBody += `<tr>
-                <td>${p.id}</td>
-                <td>${p.name}</td>
-                <td>${p.category}</td>
-                <td style="color: ${p.stock <= 10 ? 'red' : 'inherit'}">${p.stock}</td>
-                <td>${settings.currency}${(parseFloat(p.mrp)||0).toFixed(2)}</td>
-                <td>${settings.currency}${val.toFixed(2)}</td>
-            </tr>`;
-        });
-        htmlFoot = `<tr><td colspan="5" style="text-align: right;">Total Inventory Value:</td><td>${settings.currency}${totalValue.toFixed(2)}</td></tr>`;
-    } else if (type === 'inventory_restock' || type === 'stock_in_history') {
-        title.textContent = `Inventory Restock Report (${start} to ${end})`;
-        htmlHead = `<tr><th>Date & Time</th><th>What Restocked (Product)</th><th>Batch / Expiry</th><th>Qty Added</th><th>Stock Level</th><th>Cost / MRP</th><th>Who Restocked</th><th>Notes</th></tr>`;
-        
-        let totalQtyAdded = 0;
-        let filteredLogs = (Array.isArray(stockInLogs) ? stockInLogs : []).filter(l => isDateInRange(l.date));
-        filteredLogs.forEach(l => {
-            const qty = parseFloat(l.qty) || 0;
-            totalQtyAdded += qty;
-            const batchExpiry = [l.batch ? `Batch: ${l.batch}` : '', l.expiry ? `Exp: ${l.expiry}` : ''].filter(Boolean).join(' | ') || '---';
-            const costStr = l.cost ? `${settings.currency}${(parseFloat(l.cost)||0).toFixed(2)}` : '---';
-            const sellStr = l.sell ? `${settings.currency}${(parseFloat(l.sell)||0).toFixed(2)}` : '---';
-            const dateTime = (l.timestamp || `${l.date || ''} ${l.time || ''}`).trim() || l.date || '---';
-            const userStr = l.restockedBy || 'Admin';
-
-            htmlBody += `<tr>
-                <td>${escapeHtml(dateTime)}</td>
-                <td><strong>${escapeHtml(l.productName || '---')}</strong></td>
-                <td>${escapeHtml(batchExpiry)}</td>
-                <td style="color: var(--success-color); font-weight: 600;">+${qty}</td>
-                <td><small style="color: var(--text-muted);">${l.prevStock !== undefined ? l.prevStock : '---'}</small> &rarr; <strong>${l.newStock !== undefined ? l.newStock : '---'}</strong></td>
-                <td>Cost: ${costStr}<br><small style="color: var(--text-muted);">MRP: ${sellStr}</small></td>
-                <td><span class="badge" style="background: var(--primary-light, #e0f2fe); color: var(--primary-color, #0284c7); font-weight: 600;">${escapeHtml(userStr)}</span></td>
-                <td>${escapeHtml(l.note || '---')}</td>
-            </tr>`;
-        });
-        htmlFoot = `<tr><td colspan="3" style="text-align: right;">Total Restock Quantity:</td><td style="color: var(--success-color); font-weight: 700;">+${totalQtyAdded}</td><td colspan="4" style="text-align: right;">Total Operations: ${filteredLogs.length}</td></tr>`;
-    } else if (type && type.startsWith('digital_orders_')) {
-        const subType = type.replace('digital_orders_', '');
-        
-        let allDigi = (Array.isArray(sales) ? sales : []).filter(s => s.isDigitalOrder || (s.invoiceNo && (s.invoiceNo.startsWith('ORD-') || s.invoiceNo.startsWith('CAKE-'))));
-        let allCancelled = Array.isArray(cancelledDigitalOrders) ? cancelledDigitalOrders : [];
-
-        let reportList = [];
-
-        if (subType === 'confirmed') {
-            title.textContent = `Confirmed / Active Digital Menu Orders Report (${start} to ${end})`;
-            reportList = allDigi.filter(s => isDateInRange(s.date) && s.status !== 'Cancelled');
-        } else if (subType === 'cancelled') {
-            title.textContent = `Cancelled Digital Menu Orders Report (${start} to ${end})`;
-            const cancelledFromSales = allDigi.filter(s => isDateInRange(s.date) && s.status === 'Cancelled');
-            const cancelledFromHistory = allCancelled.filter(s => isDateInRange(s.cancelledAt || s.date));
-            const map = new Map();
-            [...cancelledFromSales, ...cancelledFromHistory].forEach(item => {
-                map.set(item.id || item.invoiceNo, item);
-            });
-            reportList = Array.from(map.values());
-        } else {
-            title.textContent = `Digital Menu Orders Master Report (${start} to ${end})`;
-            const activeFiltered = allDigi.filter(s => isDateInRange(s.date));
-            const cancelledFiltered = allCancelled.filter(s => isDateInRange(s.cancelledAt || s.date));
-            const map = new Map();
-            [...activeFiltered, ...cancelledFiltered].forEach(item => {
-                map.set(item.id || item.invoiceNo, item);
-            });
-            reportList = Array.from(map.values());
-        }
-
-        htmlHead = `<tr><th>Order #</th><th>Date & Time</th><th>Type</th><th>Customer Details</th><th>Items / Cake Details</th><th>Amount</th><th>Status</th></tr>`;
-
-        let grandSum = 0;
-        reportList.forEach(o => {
-            const orderDate = new Date(o.cancelledAt || o.date || Date.now()).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
-            const custName = (o.customer && o.customer.name) ? o.customer.name : 'Walk-in';
-            const custPhone = (o.customer && o.customer.phone) ? o.customer.phone : '-';
-            const itemsStr = o.items ? o.items.map(i => `${i.name || i.productName} (x${i.qty || 1})`).join(', ') : (o.notes || '---');
-            const amt = parseFloat(o.grandTotal) || 0;
-            if (o.status !== 'Cancelled') grandSum += amt;
-            
-            const isCake = o.isCustomCake || (o.orderType && o.orderType.includes('Cake'));
-            const typeStr = isCake ? '🎂 Customized Cake' : (o.orderType || 'Digital Order');
-            const statusColor = o.status === 'Cancelled' ? 'color: var(--danger-color); font-weight: bold;' : (o.status === 'Billed' ? 'color: var(--success-color); font-weight: bold;' : 'color: #d97706; font-weight: bold;');
-
-            htmlBody += `<tr>
-                <td><strong>#${escapeHtml(o.invoiceNo || o.id)}</strong></td>
-                <td>${escapeHtml(orderDate)}</td>
-                <td><span class="badge" style="background: ${isCake ? '#fce7f3' : '#e0f2fe'}; color: ${isCake ? '#be185d' : '#0284c7'}; font-weight: 600;">${escapeHtml(typeStr)}</span></td>
-                <td><strong>${escapeHtml(custName)}</strong><br><small style="color: var(--text-muted);">${escapeHtml(custPhone)}</small></td>
-                <td>${escapeHtml(itemsStr)}</td>
-                <td><strong>${settings.currency}${amt.toFixed(2)}</strong></td>
-                <td><span style="${statusColor}">${escapeHtml(o.status || 'Pending')}</span></td>
-            </tr>`;
-        });
-
-        htmlFoot = `<tr><td colspan="5" style="text-align: right;">Total Active Revenue / Total Orders (${reportList.length}):</td><td style="color: var(--primary-color); font-weight: 800;">${settings.currency}${grandSum.toFixed(2)}</td><td></td></tr>`;
-    } else if (type.startsWith('sales_')) {
-        let titleMap = {
-            'sales_all': 'Total Sales Report',
-            'sales_product': 'Sales Product List Report',
-            'sales_cash': 'Cash Sales Report',
-            'sales_gpay': 'GPay Sales Report',
-            'sales_credit': 'Customer Credit Report'
-        };
-        title.textContent = (titleMap[type] || 'Sales Report') + ` (${start} to ${end})`;
-        
-        let filteredSales = sales.filter(s => isDateInRange(s.date) && !s.isReturn && s.paymentMode !== 'Pending' && s.status !== 'Pending' && !s.isCancelled);
-
-        if (type === 'sales_product') {
-            htmlHead = `<tr><th>Product Name</th><th>Category</th><th>Qty Sold</th><th>Bills Count</th><th>Total Revenue</th></tr>`;
-            const prodMap = {};
-            filteredSales.forEach(s => {
-                (s.items || []).forEach(i => {
-                    const key = i.id || i.name || 'Unknown';
-                    if (!prodMap[key]) prodMap[key] = { name: i.name || 'Unknown', category: i.category || 'General', qty: 0, bills: 0, total: 0 };
-                    const q = Number(i.qty || 0);
-                    const pr = Number(i.salePrice || i.price || i.mrp || 0);
-                    prodMap[key].qty += q;
-                    prodMap[key].bills += 1;
-                    prodMap[key].total += Number(i.total || (q * pr));
-                });
-            });
-            Object.values(prodMap).forEach(p => {
-                totalValue += p.total;
-                htmlBody += `<tr>
-                    <td><strong>${escapeHtml(p.name)}</strong></td>
-                    <td>${escapeHtml(p.category)}</td>
-                    <td>${p.qty}</td>
-                    <td>${p.bills}</td>
-                    <td>${settings.currency}${(p.total).toFixed(2)}</td>
-                </tr>`;
-            });
-            htmlFoot = `<tr><td colspan="4" style="text-align: right;">Total Sales Product Revenue:</td><td>${settings.currency}${totalValue.toFixed(2)}</td></tr>`;
-        } else {
-            htmlHead = `<tr><th>Date</th><th>Invoice</th><th>Customer</th><th>Products Sold</th><th>Payment</th><th>Total</th></tr>`;
-            if (type === 'sales_cash') filteredSales = filteredSales.filter(s => s.paymentMode === 'Cash');
-            else if (type === 'sales_gpay') filteredSales = filteredSales.filter(s => s.paymentMode === 'GPay');
-            else if (type === 'sales_credit') filteredSales = filteredSales.filter(s => s.paymentMode === 'Credit');
-            
-            filteredSales.forEach(s => {
-                totalValue += parseFloat(s.grandTotal) || 0;
-                totalItems++;
-                const itemsStr = (s.items && s.items.length > 0) ? s.items.map(i => `${i.name} (x${i.qty})`).join(', ') : '---';
-                htmlBody += `<tr>
-                    <td>${new Date(s.date).toLocaleDateString()}</td>
-                    <td>${s.invoiceNo}</td>
-                    <td>${s.customer ? s.customer.name : 'Cash'}</td>
-                    <td style="max-width: 250px;">${itemsStr}</td>
-                    <td>${s.paymentMode}</td>
-                    <td>${settings.currency}${(parseFloat(s.grandTotal)||0).toFixed(2)}</td>
-                </tr>`;
-            });
-            htmlFoot = `<tr><td colspan="5" style="text-align: right;">Total Sales Amount:</td><td>${settings.currency}${totalValue.toFixed(2)}</td></tr>`;
-        }
-    } else if (type === 'purchases') {
-        title.textContent = `Purchases Report (${start} to ${end})`;
-        htmlHead = `<tr><th>Date</th><th>Invoice</th><th>Supplier</th><th>Item</th><th>Qty</th><th>Cost</th><th>Total</th></tr>`;
-        
-        let filteredPurchases = purchases.filter(p => isDateInRange(p.date));
-        filteredPurchases.forEach(p => {
-            totalValue += parseFloat(p.total) || 0;
-            htmlBody += `<tr>
-                <td>${new Date(p.date).toLocaleDateString()}</td>
-                <td>${p.invoice}</td>
-                <td>${p.supplier}</td>
-                <td>${p.productName}</td>
-                <td>${p.qty}</td>
-                <td>${settings.currency}${(parseFloat(p.price)||0).toFixed(2)}</td>
-                <td>${settings.currency}${(parseFloat(p.total)||0).toFixed(2)}</td>
-            </tr>`;
-        });
-        htmlFoot = `<tr><td colspan="6" style="text-align: right;">Total Purchases:</td><td>${settings.currency}${totalValue.toFixed(2)}</td></tr>`;
-    } else if (type === 'expenses') {
-        title.textContent = `Recent Expenses Report (${start} to ${end})`;
-        htmlHead = `<tr><th>Date</th><th>Category</th><th>Description / Notes</th><th>Amount</th></tr>`;
-        
-        let filteredEx = expenses.filter(e => isDateInRange(e.date));
-        filteredEx.forEach(e => {
-            const amt = parseFloat(e.amount) || 0;
-            totalValue += amt;
-            const desc = e.description || e.notes || e.title || '---';
-            htmlBody += `<tr>
-                <td>${e.date || '---'}</td>
-                <td><strong>${escapeHtml(e.category || 'Uncategorized')}</strong></td>
-                <td>${escapeHtml(desc)}</td>
-                <td style="font-weight: 600;">${settings.currency}${amt.toFixed(2)}</td>
-            </tr>`;
-        });
-        htmlFoot = `<tr><td colspan="3" style="text-align: right;">Total Expenses Amount:</td><td style="font-weight: 700; color: var(--danger-color);">${settings.currency}${totalValue.toFixed(2)}</td></tr>`;
-    }
-    
-    if (!htmlBody) {
-        htmlBody = `<tr><td colspan="8" style="text-align: center;">No data found for the selected criteria.</td></tr>`;
-    }
-    
-    head.innerHTML = htmlHead;
-    body.innerHTML = htmlBody;
-    foot.innerHTML = htmlFoot;
-}
-
 function downloadReportPDF() {
     const reportTitle = document.getElementById('report-table-title') ? document.getElementById('report-table-title').textContent : 'Business Report';
     const shopName = (typeof settings !== 'undefined' && settings.shopName) ? settings.shopName : 'T7 BillPro';
@@ -7523,30 +7396,6 @@ function downloadReportPDF() {
     printWin.document.open();
     printWin.document.write(htmlContent);
     printWin.document.close();
-}
-
-function exportReportToCSV() {
-    const title = document.getElementById('report-table-title').textContent.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-    const table = document.getElementById('report-table');
-    let csv = [];
-    
-    for (let i = 0; i < table.rows.length; i++) {
-        let row = [], cols = table.rows[i].querySelectorAll('td, th');
-        for (let j = 0; j < cols.length; j++) {
-            let data = cols[j].innerText.replace(/"/g, '""');
-            row.push('"' + data + '"');
-        }
-        csv.push(row.join(','));
-    }
-    
-    const csvFile = new Blob([csv.join('\n')], {type: 'text/csv'});
-    const downloadLink = document.createElement('a');
-    downloadLink.download = `${title}.csv`;
-    downloadLink.href = window.URL.createObjectURL(csvFile);
-    downloadLink.style.display = 'none';
-    document.body.appendChild(downloadLink);
-    downloadLink.click();
-    document.body.removeChild(downloadLink);
 }
 
 // --- Automated Local Directory Backup (File System Access API) ---
@@ -7793,31 +7642,18 @@ window.showDigitalMenuQRCode = showDigitalMenuQRCode;
 window.closeQRCodeModal = closeQRCodeModal;
 window.printQRCodePoster = printQRCodePoster;
 
+// Resolve a QR destination that can actually be opened from a customer's phone.
+// Local development hosts (localhost/127.0.0.1) are not reachable from another device,
+// so QR codes use the production domain defined by the project's CNAME.
+function getPublicCakeOrderBaseUrl() {
+    const configuredPublicUrl = 'https://t7billpro.in/';
+    const host = String(window.location.hostname || '').toLowerCase();
+    const isLocalHost = host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === '::1' || host.endsWith('.local');
+    if (isLocalHost || window.location.protocol === 'file:') return configuredPublicUrl;
+    return window.location.href.split('#')[0].split('?')[0];
+}
+
 // --- Customized Cake Order & QR Code Functions ---
-function openCustomCakeModal() {
-    const modal = document.getElementById('custom-cake-modal');
-    if (!modal) return;
-    updateCakeFlavorDropdowns();
-    modal.style.display = 'flex';
-    const dateInput = document.getElementById('cake-date');
-    if (dateInput && !dateInput.value) {
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        dateInput.value = tomorrow.toISOString().split('T')[0];
-    }
-    const timeInput = document.getElementById('cake-time');
-    if (timeInput && !timeInput.value) {
-        timeInput.value = '17:00';
-    }
-    calculateCustomCakePrice();
-    if (typeof lucide !== 'undefined') lucide.createIcons();
-}
-
-function closeCustomCakeModal() {
-    const modal = document.getElementById('custom-cake-modal');
-    if (modal) modal.style.display = 'none';
-}
-
 function showCustomCakeQRCode() {
     const modal = document.getElementById('cake-qr-modal');
     const qrImg = document.getElementById('cake-qr-code-img');
@@ -7950,65 +7786,6 @@ function calculateCustomCakePrice() {
     }
 
     return grandTotal;
-}
-
-function handleCustomCakeSubmit(e) {
-    e.preventDefault();
-    const flavor = document.getElementById('cake-flavor').value;
-    const weight = document.getElementById('cake-weight').value;
-    const shape = document.getElementById('cake-shape').value;
-    const eggless = document.getElementById('cake-eggless').value;
-    const message = (document.getElementById('cake-message').value || '').trim();
-    const date = document.getElementById('cake-date').value;
-    const time = document.getElementById('cake-time').value;
-    const notes = (document.getElementById('cake-notes').value || '').trim();
-    const customerName = (document.getElementById('cake-customer-name').value || '').trim();
-    const customerPhone = (document.getElementById('cake-customer-phone').value || '').trim();
-    const deliveryOption = 'Store Pickup';
-
-    const grandTotal = calculateCustomCakePrice();
-
-    const cakeOrder = {
-        id: 'CAKE' + Date.now(),
-        isDigitalOrder: true,
-        isCustomCake: true,
-        orderType: 'Customized Cake',
-        invoiceNo: 'CAKE-' + Math.floor(10000 + Math.random() * 90000),
-        date: new Date().toISOString(),
-        deliveryDate: `${date} ${time}`,
-        customer: {
-            name: customerName,
-            phone: customerPhone,
-            address: 'Store Pickup Only'
-        },
-        items: [{
-            name: `🎂 Cake: ${flavor} (${weight}, ${shape}, ${eggless})`,
-            qty: 1,
-            price: grandTotal,
-            total: grandTotal,
-            note: message ? `Msg: "${message}"` : ''
-        }],
-        notes: `Pickup Time: ${date} ${time} | Flavor: ${flavor} | Weight: ${weight} | Shape: ${shape} | ${eggless} | Msg: "${message}" ${notes ? ' | Notes: ' + notes : ''}`,
-        grandTotal: grandTotal,
-        status: 'Pending',
-        paymentStatus: 'Pending',
-        paymentMode: 'Pay on Store Pickup'
-    };
-
-    sales.push(cakeOrder);
-    localStorage.setItem('mediflow_sales', JSON.stringify(sales));
-    if (typeof syncToCloud === 'function') {
-        syncToCloud('sales', { data: sales });
-    }
-
-    closeCustomCakeModal();
-    e.target.reset();
-
-    alert(`🎂 Customized Cake Order Submitted Successfully!\nOrder ID: ${cakeOrder.invoiceNo}\nCustomer: ${customerName} (${customerPhone})\nWe will contact you shortly to confirm design & pricing.`);
-
-    if (typeof renderDigitalOrders === 'function') {
-        renderDigitalOrders();
-    }
 }
 
 window.openCustomCakeModal = openCustomCakeModal;
@@ -9036,15 +8813,46 @@ window.triggerPrintPaySlip = triggerPrintPaySlip;
 // --- Customer Digital Menu View & Ordering ---
 let isCustomerViewActive = false;
 let currentCustomerTable = null;
+let currentCustomerTableId = null;
+let currentCustomerTableValid = false;
 
 function getTableFromURL() {
     const hash = window.location.hash || '';
     const search = window.location.search || '';
     const match = hash.match(/[?&]table=([^&]+)/) || search.match(/[?&]table=([^&]+)/);
-    if (match && match[1]) {
-        return decodeURIComponent(match[1].replace(/\+/g, ' '));
-    }
+    if (match && match[1]) return decodeURIComponent(match[1].replace(/\+/g, ' '));
     return null;
+}
+
+function getTableIdFromURL() {
+    const hash = window.location.hash || '';
+    const search = window.location.search || '';
+    const match = hash.match(/[?&]tableId=([^&]+)/) || search.match(/[?&]tableId=([^&]+)/);
+    if (match && match[1]) return decodeURIComponent(match[1]);
+    return null;
+}
+
+function validateCustomerTable() {
+    const tableId = getTableIdFromURL();
+    const tableName = getTableFromURL();
+    currentCustomerTableId = tableId || null;
+    currentCustomerTableValid = false;
+    if (!tableId && !tableName) { currentCustomerTable = null; return true; }
+    const list = Array.isArray(tableList) ? tableList : [];
+    let table = tableId ? list.find(t => String(t.id) === String(tableId)) : null;
+    if (!table && tableName) {
+        const clean = String(tableName).trim().toLowerCase();
+        table = list.find(t => String(t.name || '').trim().toLowerCase() === clean);
+    }
+    if (!table || (table.branchId && String(table.branchId) !== String(currentBranchId))) {
+        currentCustomerTable = null;
+        currentCustomerTableValid = false;
+        return false;
+    }
+    currentCustomerTable = table.name;
+    currentCustomerTableId = table.id;
+    currentCustomerTableValid = true;
+    return true;
 }
 
 function enableCustomerMenuView() {
@@ -9061,8 +8869,13 @@ function enableCustomerMenuView() {
     }
 
     const tableFromUrl = getTableFromURL();
-    if (tableFromUrl) {
-        currentCustomerTable = tableFromUrl;
+    const tableIdFromUrl = getTableIdFromURL();
+    if (tableFromUrl || tableIdFromUrl) {
+        if (!validateCustomerTable()) {
+            currentCustomerTable = null;
+            currentCustomerTableId = null;
+            currentCustomerTableValid = false;
+        }
     }
 
     const loginScreen = document.getElementById('login-screen');
@@ -9130,6 +8943,8 @@ window.enableCustomerMenuView = enableCustomerMenuView;
 window.openAdminLoginFromCustomerView = openAdminLoginFromCustomerView;
 window.closeMenuSuccessModal = closeMenuSuccessModal;
 window.getTableFromURL = getTableFromURL;
+window.getTableIdFromURL = getTableIdFromURL;
+window.validateCustomerTable = validateCustomerTable;
 window.closeMenuOrderSuccessModal = closeMenuOrderSuccessModal;
 window.renderBranches = renderBranches;
 window.openBranchModal = openBranchModal;
@@ -9787,6 +9602,170 @@ function renderBillingDoctorOptions() {
         datalist.appendChild(opt);
     });
 }
+
+
+// ==================== BALANCE / CASH MANAGEMENT ====================
+function balanceCurrency(v) {
+    const n = Number(v) || 0;
+    return `${settings.currency || '₹'}${n.toFixed(2)}`;
+}
+
+function balanceDateValue() {
+    return document.getElementById('bal-date')?.value || new Date().toISOString().slice(0,10);
+}
+
+function isCashMode(mode) {
+    const m = String(mode || 'Cash').toLowerCase();
+    return m === 'cash' || m === 'cash payment' || m.includes('cash');
+}
+
+function getBalanceForDate(date) {
+    const daySales = sales.filter(s => s && !s.isCancelled && String(s.date || '').slice(0,10) === date && isCashMode(s.paymentMode) && s.paymentMode !== 'Credit');
+    const cashSales = daySales.reduce((a,s) => a + (Number(s.grandTotal)||0), 0);
+    const dayCustomerPayments = customerPayments.filter(p => String(p.date || '').slice(0,10) === date && isCashMode(p.method));
+    const customerCashIn = dayCustomerPayments.reduce((a,p) => a + (Number(p.amount)||0), 0);
+    const dayPurchases = purchases.filter(p => String(p.date || '').slice(0,10) === date && isCashMode(p.paymentMode));
+    const cashPurchases = dayPurchases.reduce((a,p) => a + (Number(p.grandTotal || p.total)||0), 0);
+    const daySupplierPayments = supplierPayments.filter(p => String(p.date || '').slice(0,10) === date && isCashMode(p.method));
+    const supplierCashOut = daySupplierPayments.reduce((a,p) => a + (Number(p.amount)||0), 0);
+    const dayExpenses = expenses.filter(e => String(e.date || '').slice(0,10) === date);
+    const expenseCashOut = dayExpenses.reduce((a,e) => a + (Number(e.amount)||0), 0);
+    const dayAdvances = staffAdvances.filter(a => String(a.date || '').slice(0,10) === date && isCashMode(a.paymentMode) && String(a.type || '').toLowerCase() !== 'returned');
+    const staffCashOut = dayAdvances.reduce((a,x) => a + (Number(x.amount)||0), 0);
+    const daySalary = salaryPayments.filter(p => String(p.paymentDate || p.paidAt || '').slice(0,10) === date && isCashMode(p.paymentMode));
+    const salaryCashOut = daySalary.reduce((a,p) => a + (Number(p.amountPaid)||0), 0);
+    const dayManual = cashTransactions.filter(t => String(t.date || '').slice(0,10) === date);
+    const manualIn = dayManual.filter(t => t.type === 'in').reduce((a,t) => a + (Number(t.amount)||0), 0);
+    const manualOut = dayManual.filter(t => t.type === 'out').reduce((a,t) => a + (Number(t.amount)||0), 0);
+    const opening = Number(cashOpenings[date] || 0);
+    const cashIn = cashSales + customerCashIn + manualIn;
+    const cashOut = cashPurchases + supplierCashOut + expenseCashOut + staffCashOut + salaryCashOut + manualOut;
+    const expected = opening + cashIn - cashOut;
+    const record = (cashOpenings && cashOpenings[date] && typeof cashOpenings[date] === 'object') ? cashOpenings[date] : {};
+    const counted = record.counted === undefined || record.counted === '' ? null : Number(record.counted);
+    return {date, opening, cashSales, customerCashIn, manualIn, cashPurchases, supplierCashOut, expenseCashOut, staffCashOut, salaryCashOut, manualOut, cashIn, cashOut, expected, counted, variance: counted === null ? null : counted - expected, note: record.note || ''};
+}
+
+function getBalancePosition() {
+    let receivable = 0;
+    customers.forEach(c => {
+        const phone = c.phone;
+        const credit = sales.filter(s => s.customer?.phone === phone && s.paymentMode === 'Credit' && !s.isCancelled).reduce((a,s) => a + (Number(s.grandTotal)||0), 0);
+        const paid = customerPayments.filter(p => p.customerPhone === phone).reduce((a,p) => a + (Number(p.amount)||0), 0);
+        receivable += Math.max(0, credit - paid);
+    });
+    let payable = 0;
+    suppliers.forEach(s => {
+        const purchasesTotal = purchases.filter(p => p.supplier === s.name).reduce((a,p) => a + (Number(p.grandTotal || p.total)||0), 0);
+        const paid = supplierPayments.filter(p => p.supplierId === s.id).reduce((a,p) => a + (Number(p.amount)||0), 0);
+        payable += Math.max(0, purchasesTotal - paid);
+    });
+    let staffOutstanding = 0;
+    staffList.forEach(st => {
+        const given = staffAdvances.filter(a => a.staffId === st.id && String(a.type).toLowerCase() !== 'returned').reduce((a,x) => a + (Number(x.amount)||0), 0);
+        const returned = staffAdvances.filter(a => a.staffId === st.id && String(a.type).toLowerCase() === 'returned').reduce((a,x) => a + (Number(x.amount)||0), 0);
+        staffOutstanding += Math.max(0, given - returned);
+    });
+    return {receivable, payable, staffOutstanding};
+}
+
+function initBalancePage() {
+    const d = new Date().toISOString().slice(0,10);
+    const dateEl = document.getElementById('bal-date');
+    if (dateEl && !dateEl.value) dateEl.value = d;
+    loadBalanceDate();
+    renderBalanceTransactions();
+    renderBalanceBreakdown();
+}
+
+function loadBalanceDate() {
+    const date = balanceDateValue();
+    const record = cashOpenings[date] || {};
+    const openEl = document.getElementById('bal-opening');
+    const countEl = document.getElementById('bal-counted');
+    const noteEl = document.getElementById('bal-closing-note');
+    if (openEl) openEl.value = record.opening ?? cashOpenings[date] ?? 0;
+    if (countEl) countEl.value = record.counted ?? '';
+    if (noteEl) noteEl.value = record.note || '';
+    renderBalanceSummary(date);
+    renderBalanceBreakdown();
+}
+
+function saveBalanceDay() {
+    const date = balanceDateValue();
+    const opening = Math.max(0, Number(document.getElementById('bal-opening').value) || 0);
+    const countedRaw = document.getElementById('bal-counted').value;
+    const counted = countedRaw === '' ? null : Math.max(0, Number(countedRaw) || 0);
+    const note = (document.getElementById('bal-closing-note').value || '').trim();
+    cashOpenings[date] = {opening, counted, note, updatedAt: new Date().toISOString()};
+    localStorage.setItem('mediflow_cash_openings', JSON.stringify(cashOpenings));
+    if (typeof syncToCloud === 'function') syncToCloud('cash_openings', cashOpenings);
+    renderBalanceSummary(date); renderBalanceBreakdown();
+    alert('Opening/closing cash saved.');
+}
+
+function addBalanceTransaction() {
+    const type = document.getElementById('bal-tx-type').value;
+    const amount = Number(document.getElementById('bal-tx-amount').value) || 0;
+    const note = (document.getElementById('bal-tx-note').value || '').trim();
+    if (amount <= 0 || !note) { alert('Enter a valid amount and reason.'); return; }
+    cashTransactions.push({id:'CB'+Date.now(), type, amount, note, date: balanceDateValue(), createdAt:new Date().toISOString()});
+    localStorage.setItem('mediflow_cash_transactions', JSON.stringify(cashTransactions));
+    if (typeof syncToCloud === 'function') syncToCloud('cash_transactions', cashTransactions);
+    document.getElementById('bal-tx-amount').value=''; document.getElementById('bal-tx-note').value='';
+    renderBalanceTransactions(); renderBalanceSummary(balanceDateValue()); renderBalanceBreakdown();
+}
+
+function renderBalanceSummary(date) {
+    const b = getBalanceForDate(date);
+    const el = document.getElementById('bal-day-summary'); if (!el) return;
+    el.innerHTML = `<div><strong>Opening:</strong> ${balanceCurrency(b.opening)} &nbsp; <strong>Cash In:</strong> ${balanceCurrency(b.cashIn)} &nbsp; <strong>Cash Out:</strong> ${balanceCurrency(b.cashOut)}</div><div style="font-size:1.25rem;margin-top:.5rem;"><strong>Expected Closing: ${balanceCurrency(b.expected)}</strong></div>${b.counted === null ? '<div style="margin-top:.4rem;color:var(--text-muted);">Cash counted not entered.</div>' : `<div style="margin-top:.4rem;"><strong>Counted:</strong> ${balanceCurrency(b.counted)} &nbsp; <strong>Difference:</strong> ${balanceCurrency(b.variance)}</div>`}`;
+    const pos=getBalancePosition();
+    const cards={
+      'bal-expected-cash':b.expected,
+      'bal-receivable':pos.receivable,
+      'bal-payable':pos.payable,
+      'bal-staff-advance':pos.staffOutstanding,
+      'bal-net-position':b.expected+pos.receivable-pos.payable-pos.staffOutstanding
+    };
+    Object.entries(cards).forEach(([id,val])=>{const x=document.getElementById(id);if(x)x.textContent=balanceCurrency(val);});
+}
+
+function renderBalanceTransactions() {
+    const el=document.getElementById('bal-transactions'); if(!el)return;
+    const date=balanceDateValue();
+    const rows=cashTransactions.filter(t=>String(t.date).slice(0,10)===date).slice().reverse();
+    el.innerHTML=rows.length?`<table style="width:100%;font-size:.9rem"><thead><tr><th>Type</th><th>Reason</th><th>Amount</th></tr></thead><tbody>${rows.map(t=>`<tr><td>${t.type==='in'?'Cash In':'Cash Out'}</td><td>${escapeHtml(t.note||'')}</td><td>${balanceCurrency(t.amount)}</td></tr>`).join('')}</tbody></table>`:'<div style="color:var(--text-muted)">No manual cash entries for this date.</div>';
+}
+
+function renderBalanceBreakdown() {
+    const el=document.getElementById('bal-breakdown'); if(!el)return;
+    const date=balanceDateValue(); const b=getBalanceForDate(date); const pos=getBalancePosition();
+    el.innerHTML=`<div class="table-responsive"><table><thead><tr><th>Balance Component</th><th>Amount</th><th>Meaning</th></tr></thead><tbody>
+      <tr><td>Opening Cash</td><td>${balanceCurrency(b.opening)}</td><td>Drawer balance at start</td></tr>
+      <tr><td>Cash Sales</td><td>${balanceCurrency(b.cashSales)}</td><td>Cash bills</td></tr>
+      <tr><td>Customer Payments</td><td>${balanceCurrency(b.customerCashIn)}</td><td>Cash collected against credit</td></tr>
+      <tr><td>Manual Cash In</td><td>${balanceCurrency(b.manualIn)}</td><td>Other cash received</td></tr>
+      <tr><td>Cash Purchases</td><td>${balanceCurrency(b.cashPurchases)}</td><td>Purchases paid in cash</td></tr>
+      <tr><td>Supplier Payments</td><td>${balanceCurrency(b.supplierCashOut)}</td><td>Supplier dues paid in cash</td></tr>
+      <tr><td>Expenses</td><td>${balanceCurrency(b.expenseCashOut)}</td><td>Recorded expenses</td></tr>
+      <tr><td>Staff Advances</td><td>${balanceCurrency(b.staffCashOut)}</td><td>Cash advances</td></tr>
+      <tr><td>Salary Paid</td><td>${balanceCurrency(b.salaryCashOut)}</td><td>Cash salary payments</td></tr>
+      <tr><td>Manual Cash Out</td><td>${balanceCurrency(b.manualOut)}</td><td>Other cash paid</td></tr>
+      <tr><td><strong>Expected Closing Cash</strong></td><td><strong>${balanceCurrency(b.expected)}</strong></td><td>Opening + In - Out</td></tr>
+      <tr><td>Customer Receivable</td><td>${balanceCurrency(pos.receivable)}</td><td>Outstanding customer credit</td></tr>
+      <tr><td>Supplier Payable</td><td>${balanceCurrency(pos.payable)}</td><td>Outstanding supplier due</td></tr>
+      <tr><td>Staff Advance Outstanding</td><td>${balanceCurrency(pos.staffOutstanding)}</td><td>Unrecovered staff advances</td></tr>
+    </tbody></table></div>`;
+}
+
+function printBalanceReport() {
+    const date=balanceDateValue(); const b=getBalanceForDate(date); const pos=getBalancePosition();
+    const w=window.open('','_blank','width=900,height=700');
+    if(!w)return;
+    w.document.write(`<html><head><title>Balance Report - ${date}</title><style>body{font-family:Arial;padding:30px}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #ccc;padding:8px;text-align:left}h2{margin-bottom:4px}</style></head><body><h2>${escapeHtml(settings.shopName||'T7 BillPro')} - Balance Report</h2><div>Date: ${date}</div><table><tr><th>Component</th><th>Amount</th></tr><tr><td>Opening Cash</td><td>${balanceCurrency(b.opening)}</td></tr><tr><td>Cash In</td><td>${balanceCurrency(b.cashIn)}</td></tr><tr><td>Cash Out</td><td>${balanceCurrency(b.cashOut)}</td></tr><tr><td>Expected Closing</td><td>${balanceCurrency(b.expected)}</td></tr><tr><td>Customer Receivable</td><td>${balanceCurrency(pos.receivable)}</td></tr><tr><td>Supplier Payable</td><td>${balanceCurrency(pos.payable)}</td></tr><tr><td>Staff Advance Outstanding</td><td>${balanceCurrency(pos.staffOutstanding)}</td></tr>${b.counted!==null?`<tr><td>Counted Cash</td><td>${balanceCurrency(b.counted)}</td></tr><tr><td>Difference</td><td>${balanceCurrency(b.variance)}</td></tr>`:''}</table><script>window.print()</script></body></html>`); w.document.close();
+}
+// ==================== END BALANCE / CASH MANAGEMENT ====================
 
 function generateReport() {
     const reportType = document.getElementById('report-type')?.value || 'stock';
@@ -10741,8 +10720,11 @@ function deleteTableEntry(idx) {
 // --- Table QR Code Functions ---
 function getTableMenuURL(tableName, branchId) {
     const targetBranch = branchId || (typeof currentBranchId !== 'undefined' && currentBranchId ? currentBranchId : (sessionStorage.getItem('mediflow_current_branch') || 'branch_default'));
+    const list = Array.isArray(tableList) ? tableList : [];
+    const table = list.find(t => String(t.name || '').trim().toLowerCase() === String(tableName || '').trim().toLowerCase());
+    const tableId = table && table.id ? table.id : '';
     const baseUrl = window.location.href.split('#')[0].split('?')[0];
-    return `${baseUrl}#menu-card?branch=${encodeURIComponent(targetBranch)}&table=${encodeURIComponent(tableName || '')}`;
+    return `${baseUrl}#menu-card?branch=${encodeURIComponent(targetBranch)}&tableId=${encodeURIComponent(tableId)}&table=${encodeURIComponent(tableName || '')}`;
 }
 
 function showTableQRCode(tableIdx) {
@@ -11201,3 +11183,178 @@ window.editDoctor = editDoctor;
 window.deleteDoctor = deleteDoctor;
 window.viewDoctorSalesReport = viewDoctorSalesReport;
 
+
+
+// ==================== PHASE 2 - PROFESSIONAL BALANCE & DAILY CASH CLOSING ====================
+(function(){
+    const BALANCE_VERSION = 2;
+    const oldDate = window.t7LocalDate;
+    function localDate(d){
+        const x=d instanceof Date?d:new Date(d||Date.now());
+        const y=x.getFullYear(),m=String(x.getMonth()+1).padStart(2,'0'),day=String(x.getDate()).padStart(2,'0');
+        return `${y}-${m}-${day}`;
+    }
+    function num(v){ return Number(v)||0; }
+    function cur(v){ return `${(settings&&settings.currency)||'₹'}${num(v).toFixed(2)}`; }
+    function closedRecord(date){
+        const r=(cashOpenings&&cashOpenings[date]);
+        return r && typeof r==='object' ? r : {};
+    }
+    function currentUserLabel(){
+        try { return sessionStorage.getItem('mediflow_current_user') || sessionStorage.getItem('mediflow_username') || 'System User'; } catch(e){ return 'System User'; }
+    }
+    function prevDate(date){ const d=new Date(date+'T00:00:00'); d.setDate(d.getDate()-1); return localDate(d); }
+    function getOpeningForDate(date){
+        const r=closedRecord(date);
+        if(r.opening !== undefined && r.opening !== null && r.opening !== '') return num(r.opening);
+        const prev=closedRecord(prevDate(date));
+        if(prev.counted !== undefined && prev.counted !== null && prev.counted !== '') return num(prev.counted);
+        return 0;
+    }
+    function isClosed(date){ return !!closedRecord(date).closed; }
+    function paymentIsCash(mode){ const m=String(mode||'Cash').trim().toLowerCase(); return m==='cash'||m==='cash payment'||m.includes('cash'); }
+    function day(date, arr, fn){ return (arr||[]).filter(x=>String(fn(x)||x.date||'').slice(0,10)===date); }
+
+    function calc(date){
+        const ds=day(date,sales,x=>x.date).filter(s=>!s.isCancelled && s.status!=='Pending' && s.paymentMode!=='Pending' && paymentIsCash(s.paymentMode));
+        const cashSales=ds.reduce((a,s)=>a+num(s.grandTotal),0);
+        const cpay=day(date,customerPayments,x=>x.date).filter(p=>paymentIsCash(p.method)).reduce((a,p)=>a+num(p.amount),0);
+        const pur=day(date,purchases,x=>x.date).filter(p=>paymentIsCash(p.paymentMode)).reduce((a,p)=>a+num(p.grandTotal??p.total),0);
+        const spay=day(date,supplierPayments,x=>x.date).filter(p=>paymentIsCash(p.date)).reduce((a,p)=>a+num(p.amount),0);
+        const exp=day(date,expenses,x=>x.date).filter(e=>paymentIsCash(e.paymentMode||'Cash')).reduce((a,e)=>a+num(e.amount),0);
+        const adv=day(date,staffAdvances,x=>x.date).filter(a=>paymentIsCash(a.paymentMode)&&String(a.type||'').toLowerCase()!=='returned').reduce((a,x)=>a+num(x.amount),0);
+        const advReturned=day(date,staffAdvances,x=>x.date).filter(a=>paymentIsCash(a.paymentMode)&&String(a.type||'').toLowerCase()==='returned').reduce((a,x)=>a+num(x.amount),0);
+        const sal=day(date,salaryPayments,x=>x.paymentDate||x.paidAt).filter(p=>paymentIsCash(p.paymentMode)).reduce((a,p)=>a+num(p.amountPaid),0);
+        const manualIn=(cashTransactions||[]).filter(t=>String(t.date).slice(0,10)===date&&t.type==='in').reduce((a,t)=>a+num(t.amount),0);
+        const manualOut=(cashTransactions||[]).filter(t=>String(t.date).slice(0,10)===date&&t.type==='out').reduce((a,t)=>a+num(t.amount),0);
+        const opening=getOpeningForDate(date);
+        const cashIn=cashSales+cpay+manualIn+advReturned;
+        const cashOut=pur+spay+exp+adv+sal+manualOut;
+        const expected=opening+cashIn-cashOut;
+        const r=closedRecord(date), counted=(r.counted===undefined||r.counted==='')?null:num(r.counted);
+        return {date,opening,cashSales,customerCashIn:cpay,cashPurchases:pur,supplierCashOut:spay,expenseCashOut:exp,staffCashOut:adv,staffAdvanceReturned:advReturned,salaryCashOut:sal,manualIn,manualOut,cashIn,cashOut,expected,counted,variance:counted===null?null:counted-expected,closed:!!r.closed,closedAt:r.closedAt||null,closedBy:r.closedBy||null,note:r.note||'',version:BALANCE_VERSION};
+    }
+
+    function persistBalance(){
+        localStorage.setItem('mediflow_cash_openings',JSON.stringify(cashOpenings));
+        if(typeof syncToCloud==='function') syncToCloud('cash_openings',cashOpenings);
+    }
+    function persistCashTx(){
+        localStorage.setItem('mediflow_cash_transactions',JSON.stringify(cashTransactions));
+        if(typeof syncToCloud==='function') syncToCloud('cash_transactions',cashTransactions);
+    }
+
+    window.loadBalanceDate=function(){
+        const date=document.getElementById('bal-date')?.value||localDate();
+        const r=closedRecord(date), open=getOpeningForDate(date);
+        const o=document.getElementById('bal-opening'), c=document.getElementById('bal-counted'), n=document.getElementById('bal-closing-note');
+        if(o)o.value=open;
+        if(c)c.value=r.counted??'';
+        if(n)n.value=r.note||'';
+        renderV2(date); renderTxV2(date); renderHistoryV2();
+    };
+    window.saveBalanceDay=function(){
+        const date=document.getElementById('bal-date')?.value||localDate();
+        const r=closedRecord(date);
+        if(r.closed){ alert('This day is already closed. Reopen it before editing.'); return; }
+        const opening=Math.max(0,num(document.getElementById('bal-opening')?.value));
+        const raw=document.getElementById('bal-counted')?.value||'';
+        const counted=raw===''?null:Math.max(0,num(raw));
+        const note=(document.getElementById('bal-closing-note')?.value||'').trim();
+        cashOpenings[date]={...r,opening,counted,note,version:BALANCE_VERSION,updatedAt:new Date().toISOString(),updatedBy:currentUserLabel()};
+        persistBalance(); renderV2(date); renderHistoryV2();
+        alert('Balance saved.');
+    };
+    window.closeBalanceDay=function(){
+        const date=document.getElementById('bal-date')?.value||localDate(), b=calc(date);
+        if(b.closed){ alert('This day is already closed.'); return; }
+        if(b.counted===null){ alert('Enter Cash Counted at Closing before closing the day.'); return; }
+        const r=closedRecord(date);
+        if(!confirm(`Close ${date}? Expected ${cur(b.expected)}, counted ${cur(b.counted)}, difference ${cur(b.variance)}.`)) return;
+        cashOpenings[date]={...r,opening:b.opening,counted:b.counted,note:(document.getElementById('bal-closing-note')?.value||'').trim(),closed:true,closedAt:new Date().toISOString(),closedBy:currentUserLabel(),version:BALANCE_VERSION};
+        persistBalance(); renderV2(date); renderHistoryV2();
+        alert('Day closed successfully.');
+    };
+    window.reopenBalanceDay=function(){
+        const date=document.getElementById('bal-date')?.value||localDate(), r=closedRecord(date);
+        if(!r.closed){ alert('This day is not closed.'); return; }
+        const isAdmin=String(sessionStorage.getItem('mediflow_user_role')||'').toLowerCase().includes('super') || String(sessionStorage.getItem('mediflow_username')||'').toUpperCase()==='VIKI';
+        if(!isAdmin){ alert('Only Super Admin can reopen a closed day.'); return; }
+        if(!confirm(`Reopen ${date}? This allows balance edits again.`)) return;
+        cashOpenings[date]={...r,closed:false,reopenedAt:new Date().toISOString(),reopenedBy:currentUserLabel()};
+        persistBalance(); renderV2(date); renderHistoryV2();
+    };
+    window.addBalanceTransaction=function(){
+        const date=document.getElementById('bal-date')?.value||localDate();
+        if(isClosed(date)){ alert('This day is closed. Reopen it before adding cash entries.'); return; }
+        const type=document.getElementById('bal-tx-type')?.value==='out'?'out':'in';
+        const amount=Math.max(0,num(document.getElementById('bal-tx-amount')?.value));
+        const note=(document.getElementById('bal-tx-note')?.value||'').trim();
+        if(amount<=0||!note){ alert('Enter amount and reason.'); return; }
+        cashTransactions.push({id:'CB'+Date.now(),branchId:currentBranchId,type,amount,note,date,createdAt:new Date().toISOString(),createdBy:currentUserLabel(),version:BALANCE_VERSION});
+        persistCashTx();
+        document.getElementById('bal-tx-amount').value=''; document.getElementById('bal-tx-note').value='';
+        renderV2(date); renderTxV2(date); renderHistoryV2();
+    };
+    window.deleteBalanceTransaction=function(id){
+        const date=document.getElementById('bal-date')?.value||localDate(); if(isClosed(date)){alert('Reopen the day first.');return;}
+        if(!confirm('Delete this cash entry?'))return;
+        cashTransactions=cashTransactions.filter(x=>x.id!==id); persistCashTx(); renderV2(date); renderTxV2(date);
+    };
+    function renderV2(date){
+        const b=calc(date), el=document.getElementById('bal-day-summary'); if(!el)return;
+        const status=b.closed?`<span style="color:var(--danger-color);">🔒 CLOSED ${b.closedAt?new Date(b.closedAt).toLocaleString():''}</span>`:'<span style="color:var(--success-color);">● OPEN</span>';
+        const diff=b.variance===null?'Not counted':`${cur(b.variance)} ${b.variance===0?'✓':'⚠'}`;
+        el.innerHTML=`<div style="margin-bottom:.5rem"><strong>Status:</strong> ${status}</div><div><strong>Opening:</strong> ${cur(b.opening)} &nbsp; <strong>Cash In:</strong> ${cur(b.cashIn)} &nbsp; <strong>Cash Out:</strong> ${cur(b.cashOut)}</div><div style="font-size:1.25rem;margin-top:.5rem"><strong>Expected Closing: ${cur(b.expected)}</strong></div><div style="margin-top:.4rem"><strong>Counted:</strong> ${b.counted===null?'Not entered':cur(b.counted)} &nbsp; <strong>Difference:</strong> ${diff}</div>`;
+        const cards={'bal-expected-cash':b.expected};
+        Object.entries(cards).forEach(([id,v])=>{const x=document.getElementById(id);if(x)x.textContent=cur(v);});
+        const pos=typeof getBalancePosition==='function'?getBalancePosition():{receivable:0,payable:0,staffOutstanding:0};
+        [['bal-receivable',pos.receivable],['bal-payable',pos.payable],['bal-staff-advance',pos.staffOutstanding],['bal-net-position',b.expected+pos.receivable-pos.payable-pos.staffOutstanding]].forEach(([id,v])=>{const x=document.getElementById(id);if(x)x.textContent=cur(v);});
+        const st=document.getElementById('bal-close-status'); if(st)st.innerHTML=b.closed?'🔒 Day is closed — entries are locked.':'🟢 Day is open — entries can be added.';
+        const oe=document.getElementById('bal-opening'); if(oe && !oe.value)oe.value=b.opening;
+    }
+    function renderTxV2(date){
+        const el=document.getElementById('bal-transactions');if(!el)return;
+        const rows=(cashTransactions||[]).filter(t=>String(t.date).slice(0,10)===date).slice().reverse();
+        el.innerHTML=rows.length?`<table style="width:100%;font-size:.9rem"><thead><tr><th>Time</th><th>Type</th><th>Reason</th><th>Amount</th><th></th></tr></thead><tbody>${rows.map(t=>`<tr><td>${t.createdAt?new Date(t.createdAt).toLocaleTimeString():''}</td><td>${t.type==='in'?'Cash In':'Cash Out'}</td><td>${escapeHtml(t.note||'')}</td><td>${cur(t.amount)}</td><td><button class="btn btn-sm btn-outline" onclick="deleteBalanceTransaction('${t.id}')">Delete</button></td></tr>`).join('')}</tbody></table>`:'<div style="color:var(--text-muted)">No manual cash entries for this date.</div>';
+    }
+    function renderHistoryV2(){
+        const el=document.getElementById('bal-history');if(!el)return;
+        const entries=Object.entries(cashOpenings||{}).filter(([d,r])=>r&&typeof r==='object'&&r.version===BALANCE_VERSION).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,31);
+        el.innerHTML=`<h3 style="margin-bottom:.75rem">Daily Closing History</h3>`+(entries.length?`<div class="table-responsive"><table><thead><tr><th>Date</th><th>Opening</th><th>Expected</th><th>Counted</th><th>Difference</th><th>Status</th></tr></thead><tbody>${entries.map(([d,r])=>{const b=calc(d);return `<tr><td>${d}</td><td>${cur(b.opening)}</td><td>${cur(b.expected)}</td><td>${b.counted===null?'—':cur(b.counted)}</td><td>${b.variance===null?'—':cur(b.variance)}</td><td>${b.closed?'Closed':'Open'}</td></tr>`}).join('')}</tbody></table></div>`:'<div style="color:var(--text-muted)">No daily closing records yet.</div>');
+    }
+    window.printBalanceReport=function(){
+        const date=document.getElementById('bal-date')?.value||localDate(),b=calc(date),w=window.open('','_blank','width=900,height=700');if(!w)return;
+        w.document.write(`<html><head><title>Daily Cash Closing - ${date}</title><style>body{font-family:Arial;padding:30px}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #ccc;padding:8px;text-align:left}.total{font-weight:bold}</style></head><body><h2>${escapeHtml(settings.shopName||'T7 BillPro')} - Daily Cash Closing</h2><div>Branch: ${escapeHtml(currentBranchId)} | Date: ${date}</div><table><tr><th>Component</th><th>Amount</th></tr><tr><td>Opening Cash</td><td>${cur(b.opening)}</td></tr><tr><td>Cash Sales</td><td>${cur(b.cashSales)}</td></tr><tr><td>Customer Cash Collections</td><td>${cur(b.customerCashIn)}</td></tr><tr><td>Manual Cash In</td><td>${cur(b.manualIn)}</td></tr><tr><td>Cash Purchases</td><td>${cur(b.cashPurchases)}</td></tr><tr><td>Supplier Payments</td><td>${cur(b.supplierCashOut)}</td></tr><tr><td>Expenses</td><td>${cur(b.expenseCashOut)}</td></tr><tr><td>Staff Advances</td><td>${cur(b.staffCashOut)}</td></tr><tr><td>Salary Paid</td><td>${cur(b.salaryCashOut)}</td></tr><tr><td>Manual Cash Out</td><td>${cur(b.manualOut)}</td></tr><tr class="total"><td>Expected Closing</td><td>${cur(b.expected)}</td></tr><tr><td>Counted Cash</td><td>${b.counted===null?'Not entered':cur(b.counted)}</td></tr><tr class="total"><td>Difference</td><td>${b.variance===null?'Not available':cur(b.variance)}</td></tr></table><p>Status: ${b.closed?'CLOSED':'OPEN'}</p><script>window.print()</script></body></html>`);w.document.close();
+    };
+    window.initBalancePage=function(){
+        const d=localDate(), dateEl=document.getElementById('bal-date');if(dateEl&&!dateEl.value)dateEl.value=d;window.loadBalanceDate();
+    };
+    // Initialize today's date with local time and carry forward previous closing.
+    setTimeout(()=>{const d=document.getElementById('bal-date');if(d&&!d.value)d.value=localDate();},0);
+})();
+// ==================== END PHASE 2 ====================
+
+
+// --- Global boot loading animation ---
+(function setupAppBootLoader(){
+    const loader = document.getElementById('app-boot-loader');
+    const text = document.getElementById('app-boot-text');
+    if (!loader) return;
+    const messages = ['Loading system...', 'Preparing workspace...', 'Loading your data...'];
+    let i = 0;
+    const timer = setInterval(() => {
+        if (text && i < messages.length - 1) text.textContent = messages[++i];
+    }, 500);
+    window.finishAppBootLoader = function(){
+        clearInterval(timer);
+        if (text) text.textContent = 'Ready';
+        setTimeout(() => loader.classList.add('is-hidden'), 180);
+        setTimeout(() => loader.remove(), 650);
+    };
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => setTimeout(window.finishAppBootLoader, 250), {once:true});
+    } else {
+        setTimeout(window.finishAppBootLoader, 250);
+    }
+})();
