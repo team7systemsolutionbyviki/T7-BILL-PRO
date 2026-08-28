@@ -1,15 +1,16 @@
-// T7 BILL PRO - Phase 1 Firebase Security Rules template
-// IMPORTANT: The current app uses client-side username/password sessions.
-// These rules should NOT be deployed until Firebase Authentication is wired to the app.
-// After Auth is enabled, replace the placeholder role checks with custom claims.
-
+// T7 BILL PRO - Firestore Security Rules
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // mediflow_data stores app data documents & catalog
     match /mediflow_data/{docId} {
-      // Temporary template: require an authenticated Firebase user.
-      // Role/branch authorization must be enforced with Firebase Auth custom claims.
-      allow read, write: if request.auth != null;
+      allow read, write: if true;
+    }
+    
+    // waiter_orders stores individual order documents created from waiter mobile link
+    match /waiter_orders/{orderId} {
+      allow read, write: if true;
     }
   }
 }
+

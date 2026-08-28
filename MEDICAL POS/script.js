@@ -442,6 +442,7 @@ function initFirebase() {
             console.log("T7 BillPro Cloud Connected");
             syncFromCloud().then(() => {
                 setupCloudListener();
+                setupWaiterOrdersListener();
             });
         }
     } catch (e) {
@@ -1024,6 +1025,15 @@ function setupLoginHandler() {
 
 function initApp() {
     try {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('mode') === 'waiter' || urlParams.get('mode') === 'waiter-order') {
+            isWaiterMobileMode = true;
+            const targetBranch = urlParams.get('branch');
+            if (targetBranch) currentBranchId = targetBranch;
+            initWaiterMobileMode();
+            return;
+        }
+
         // Data Migration: Ensure all sales have grandTotal (fix for legacy 'total' field)
         sales.forEach(s => {
             if (s.total !== undefined && s.grandTotal === undefined) {
@@ -7183,6 +7193,10 @@ function loadDigitalOrderToBilling(orderId) {
         return;
     }
 
+    if (isFirebaseEnabled && db && (order.isWaiterOrder || String(orderId).startsWith('WORD-'))) {
+        db.collection('waiter_orders').doc(orderId).update({ status: 'Billed' }).catch(() => {});
+    }
+
     if (cart.length > 0) {
         if (!confirm('Active billing cart contains items! Replace current cart with this order?')) {
             return;
@@ -7286,6 +7300,10 @@ function deleteDigitalOrder(orderId) {
         digitalOrders = digitalOrders.filter(d => d.id !== orderId && d.id !== order.invoiceNo);
         localStorage.setItem('mediflow_digital_orders', JSON.stringify(digitalOrders));
         syncToCloud('digital_orders', digitalOrders);
+
+        if (isFirebaseEnabled && db && (order.isWaiterOrder || String(orderId).startsWith('WORD-'))) {
+            db.collection('waiter_orders').doc(orderId).delete().catch(() => {});
+        }
 
         // Save to cancelled digital orders audit log
         const cancelledRecord = {
@@ -11358,3 +11376,476 @@ window.viewDoctorSalesReport = viewDoctorSalesReport;
         setTimeout(window.finishAppBootLoader, 250);
     }
 })();
+
+// ==================== WAITER MOBILE & PC ORDER INTEGRATION ====================
+let isWaiterMobileMode = false;
+let waiterCart = [];
+let currentWaiterName = '';
+let currentWaiterTable = '';
+let selectedWaiterCategory = 'ALL';
+let unsubscribeWaiterOrdersListener = null;
+
+window.openWaiterLinkModal = openWaiterLinkModal;
+window.closeWaiterLinkModal = closeWaiterLinkModal;
+window.copyWaiterLink = copyWaiterLink;
+window.resetWaiterSession = resetWaiterSession;
+window.startWaiterOrderSession = startWaiterOrderSession;
+window.showWaiterPickerStep = showWaiterPickerStep;
+window.renderWaiterMenu = renderWaiterMenu;
+window.setWaiterCategory = setWaiterCategory;
+window.updateWaiterCartItem = updateWaiterCartItem;
+window.openWaiterReviewModal = openWaiterReviewModal;
+window.closeWaiterReviewModal = closeWaiterReviewModal;
+window.submitWaiterOrderToCloud = submitWaiterOrderToCloud;
+
+function setupWaiterOrdersListener() {
+    if (!isFirebaseEnabled || !db) return;
+    try {
+        if (unsubscribeWaiterOrdersListener) unsubscribeWaiterOrdersListener();
+        unsubscribeWaiterOrdersListener = db.collection('waiter_orders')
+            .where('branchId', '==', currentBranchId)
+            .onSnapshot(snapshot => {
+                let updated = false;
+                snapshot.docChanges().forEach(change => {
+                    const data = change.doc.data();
+                    const docId = change.doc.id;
+                    if (change.type === 'added' || change.type === 'modified') {
+                        if (data && (data.status === 'Pending' || data.status === 'pending')) {
+                            let idx = sales.findIndex(s => s.id === docId || s.invoiceNo === docId);
+                            const orderRecord = {
+                                id: docId,
+                                invoiceNo: docId,
+                                date: data.createdAt || data.date || new Date().toISOString(),
+                                customer: data.customer || { name: 'Table ' + (data.tableNumber || '?'), phone: data.waiterName || '' },
+                                orderType: 'Dine-In',
+                                orderRef: data.orderRef || ('Table ' + (data.tableNumber || '?')),
+                                items: data.items || [],
+                                grandTotal: parseFloat(data.totalAmount || data.grandTotal) || 0,
+                                status: 'Pending',
+                                isDigitalOrder: true,
+                                isWaiterOrder: true,
+                                waiterName: data.waiterName || '',
+                                tableNumber: data.tableNumber || '',
+                                branchId: data.branchId
+                            };
+                            if (idx !== -1) {
+                                sales[idx] = orderRecord;
+                            } else {
+                                sales.unshift(orderRecord);
+                            }
+                            updated = true;
+                        }
+                    } else if (change.type === 'removed') {
+                        let idx = sales.findIndex(s => s.id === docId || s.invoiceNo === docId);
+                        if (idx !== -1) {
+                            sales.splice(idx, 1);
+                            updated = true;
+                        }
+                    }
+                });
+                if (updated) {
+                    localStorage.setItem('mediflow_sales', JSON.stringify(sales));
+                    if (typeof renderDigitalOrders === 'function') renderDigitalOrders();
+                }
+            }, err => {
+                console.error("Waiter orders listener error:", err);
+            });
+    } catch (e) {
+        console.error("Error setting up waiter orders listener:", e);
+    }
+}
+
+function openWaiterLinkModal() {
+    const modal = document.getElementById('waiter-link-modal');
+    const input = document.getElementById('waiter-link-input');
+    const qrImg = document.getElementById('waiter-link-qr-img');
+    const testBtn = document.getElementById('waiter-link-test-btn');
+    if (!modal) return;
+
+    const baseUrl = window.location.origin + window.location.pathname;
+    const waiterUrl = `${baseUrl}?mode=waiter&branch=${encodeURIComponent(currentBranchId || 'main_branch')}`;
+
+    if (input) input.value = waiterUrl;
+    if (testBtn) testBtn.href = waiterUrl;
+    if (qrImg) {
+        qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(waiterUrl)}`;
+    }
+
+    modal.style.display = 'flex';
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function closeWaiterLinkModal() {
+    const modal = document.getElementById('waiter-link-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+function copyWaiterLink() {
+    const input = document.getElementById('waiter-link-input');
+    if (!input || !input.value) return;
+    navigator.clipboard.writeText(input.value).then(() => {
+        alert('📱 Waiter Order Link copied to clipboard!\n\n' + input.value);
+    }).catch(() => {
+        alert('Link: ' + input.value);
+    });
+}
+
+function initWaiterMobileMode() {
+    console.log("Initializing Waiter Mobile Mode for branch:", currentBranchId);
+    
+    // Hide PC elements
+    const pcElements = ['login-screen', 'sidebar', 'app-boot-loader'];
+    pcElements.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
+
+    const pageSections = document.querySelectorAll('.page-section, header, .top-header, nav');
+    pageSections.forEach(el => {
+        if (el.id !== 'waiter-mobile-app') el.style.display = 'none';
+    });
+
+    // Show Waiter Mobile App
+    const app = document.getElementById('waiter-mobile-app');
+    if (app) app.style.display = 'block';
+
+    const branchBadge = document.getElementById('waiter-mobile-branch-badge');
+    if (branchBadge) branchBadge.textContent = `Branch ID: ${currentBranchId || 'Default'}`;
+
+    // Populate pickers
+    populateWaiterPickers();
+
+    // Finish boot loader if present
+    if (typeof window.finishAppBootLoader === 'function') window.finishAppBootLoader();
+}
+
+function populateWaiterPickers() {
+    const waiterSel = document.getElementById('wm-waiter-select');
+    const tableSel = document.getElementById('wm-table-select');
+    
+    if (waiterSel) {
+        let staffData = (typeof staffList !== 'undefined' && staffList.length > 0) ? staffList : (typeof getLegacyOrBranchData === 'function' ? getLegacyOrBranchData('mediflow_staff') : []);
+        let waiters = Array.isArray(staffData) ? staffData : [];
+        let html = '<option value="">-- Choose Waiter --</option>';
+        waiters.forEach(s => {
+            const name = typeof s === 'string' ? s : (s.name || s.staffName || s.username);
+            if (name) html += `<option value="${name}">${name}</option>`;
+        });
+        if (waiters.length === 0) {
+            html += '<option value="Waiter 1">Waiter 1</option><option value="Waiter 2">Waiter 2</option><option value="Staff">Staff</option>';
+        }
+        html += '<option value="OTHER">+ Type Custom Name</option>';
+        waiterSel.innerHTML = html;
+
+        waiterSel.onchange = function() {
+            const customInput = document.getElementById('wm-waiter-custom');
+            if (customInput) customInput.style.display = (this.value === 'OTHER') ? 'block' : 'none';
+        };
+    }
+
+    if (tableSel) {
+        let tablesData = (typeof tableList !== 'undefined' && tableList.length > 0) ? tableList : (typeof getLegacyOrBranchData === 'function' ? getLegacyOrBranchData('mediflow_tables') : []);
+        let tables = Array.isArray(tablesData) ? tablesData : [];
+        let html = '<option value="">-- Choose Table --</option>';
+        tables.forEach(t => {
+            const tName = typeof t === 'string' ? t : (t.tableName || t.name || t.id);
+            if (tName) html += `<option value="${tName}">${tName}</option>`;
+        });
+        if (tables.length === 0) {
+            for (let i = 1; i <= 15; i++) {
+                html += `<option value="Table ${i}">Table ${i}</option>`;
+            }
+        }
+        html += '<option value="OTHER">+ Type Custom Table</option>';
+        tableSel.innerHTML = html;
+
+        tableSel.onchange = function() {
+            const customInput = document.getElementById('wm-table-custom');
+            if (customInput) customInput.style.display = (this.value === 'OTHER') ? 'block' : 'none';
+        };
+    }
+}
+
+function startWaiterOrderSession() {
+    const waiterSel = document.getElementById('wm-waiter-select');
+    const waiterCustom = document.getElementById('wm-waiter-custom');
+    const tableSel = document.getElementById('wm-table-select');
+    const tableCustom = document.getElementById('wm-table-custom');
+
+    let wName = waiterSel ? waiterSel.value : '';
+    if (wName === 'OTHER' && waiterCustom) wName = waiterCustom.value.trim();
+    
+    let tNum = tableSel ? tableSel.value : '';
+    if (tNum === 'OTHER' && tableCustom) tNum = tableCustom.value.trim();
+
+    if (!wName) {
+        alert('Please select or enter a Waiter Name!');
+        return;
+    }
+    if (!tNum) {
+        alert('Please select or enter a Table Number!');
+        return;
+    }
+
+    currentWaiterName = wName;
+    currentWaiterTable = tNum;
+
+    const sessionInfo = document.getElementById('wm-session-info');
+    if (sessionInfo) sessionInfo.textContent = `${tNum} • Waiter: ${wName}`;
+
+    document.getElementById('waiter-picker-step').style.display = 'none';
+    document.getElementById('waiter-menu-step').style.display = 'block';
+    document.getElementById('wm-bottom-bar').style.display = 'block';
+
+    renderWaiterCategories();
+    renderWaiterMenu();
+}
+
+function showWaiterPickerStep() {
+    document.getElementById('waiter-picker-step').style.display = 'block';
+    document.getElementById('waiter-menu-step').style.display = 'none';
+}
+
+function resetWaiterSession() {
+    if (waiterCart.length > 0) {
+        if (!confirm('Discard active waiter order and reset?')) return;
+    }
+    waiterCart = [];
+    currentWaiterName = '';
+    currentWaiterTable = '';
+    updateWaiterCartUI();
+    showWaiterPickerStep();
+}
+
+function renderWaiterCategories() {
+    const container = document.getElementById('wm-category-pills');
+    if (!container) return;
+
+    let catList = (typeof categories !== 'undefined' && categories.length > 0) ? categories : (typeof getLegacyOrBranchData === 'function' ? getLegacyOrBranchData('mediflow_categories') : []);
+    let cats = Array.isArray(catList) ? catList.map(c => typeof c === 'string' ? c : c.name) : [];
+
+    let html = `<button type="button" class="wm-pill ${selectedWaiterCategory === 'ALL' ? 'active' : ''}" onclick="setWaiterCategory('ALL')">All Items</button>`;
+    cats.forEach(cat => {
+        if (!cat) return;
+        html += `<button type="button" class="wm-pill ${selectedWaiterCategory === cat ? 'active' : ''}" onclick="setWaiterCategory('${cat.replace(/'/g, "\\'")}')">${cat}</button>`;
+    });
+    container.innerHTML = html;
+}
+
+function setWaiterCategory(cat) {
+    selectedWaiterCategory = cat;
+    renderWaiterCategories();
+    renderWaiterMenu();
+}
+
+function renderWaiterMenu() {
+    const listEl = document.getElementById('wm-product-list');
+    const searchVal = document.getElementById('wm-search-input') ? document.getElementById('wm-search-input').value.toLowerCase().trim() : '';
+    if (!listEl) return;
+
+    let prods = (typeof products !== 'undefined' && products.length > 0) ? products : (typeof getLegacyOrBranchData === 'function' ? getLegacyOrBranchData('mediflow_products') : []);
+    if (!Array.isArray(prods)) prods = [];
+
+    let filtered = prods.filter(p => {
+        const matchesCat = (selectedWaiterCategory === 'ALL') || (p.category === selectedWaiterCategory);
+        const matchesSearch = !searchVal || (p.name && p.name.toLowerCase().includes(searchVal)) || (p.category && p.category.toLowerCase().includes(searchVal));
+        return matchesCat && matchesSearch;
+    });
+
+    if (filtered.length === 0) {
+        listEl.innerHTML = `
+            <div style="text-align: center; padding: 30px; color: var(--text-muted);">
+                <i data-lucide="search-x" style="width: 36px; height: 36px; margin-bottom: 8px;"></i>
+                <div>No menu items found.</div>
+            </div>
+        `;
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+        return;
+    }
+
+    let currSymbol = (typeof settings !== 'undefined' && settings.currency) ? settings.currency : '$';
+    let html = '';
+    filtered.forEach(p => {
+        const pId = p.id || p.name;
+        const cartItem = waiterCart.find(ci => ci.id === pId);
+        const qty = cartItem ? cartItem.qty : 0;
+        const price = parseFloat(p.salePrice || p.price || p.mrp || 0);
+
+        html += `
+            <div class="wm-product-card">
+                <div>
+                    <div style="font-weight: 700; font-size: 0.95rem; color: var(--text-color);">${p.name}</div>
+                    <div style="font-size: 0.82rem; color: var(--primary-color); font-weight: 600;">${currSymbol}${price.toFixed(2)}</div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    ${qty > 0 ? `
+                        <button type="button" class="wm-qty-btn" onclick="updateWaiterCartItem('${pId}', -1)">-</button>
+                        <span class="wm-qty-count">${qty}</span>
+                    ` : ''}
+                    <button type="button" class="wm-qty-btn" style="background: var(--primary-color); color: white; border-color: var(--primary-color);" onclick="updateWaiterCartItem('${pId}', 1)">+</button>
+                </div>
+            </div>
+        `;
+    });
+
+    listEl.innerHTML = html;
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function updateWaiterCartItem(pId, change) {
+    let prods = (typeof products !== 'undefined' && products.length > 0) ? products : (typeof getLegacyOrBranchData === 'function' ? getLegacyOrBranchData('mediflow_products') : []);
+    const prod = prods.find(p => p.id === pId || p.name === pId);
+    
+    let cartIndex = waiterCart.findIndex(item => item.id === pId);
+
+    if (cartIndex > -1) {
+        waiterCart[cartIndex].qty += change;
+        if (waiterCart[cartIndex].qty <= 0) {
+            waiterCart.splice(cartIndex, 1);
+        }
+    } else if (change > 0 && prod) {
+        const itemPrice = parseFloat(prod.salePrice || prod.price || prod.mrp || 0);
+        waiterCart.push({
+            id: prod.id || ('P_' + Date.now()),
+            name: prod.name,
+            price: itemPrice,
+            qty: 1
+        });
+    }
+
+    updateWaiterCartUI();
+    renderWaiterMenu();
+}
+
+function updateWaiterCartUI() {
+    let count = 0;
+    let total = 0;
+    waiterCart.forEach(item => {
+        count += item.qty;
+        total += item.price * item.qty;
+    });
+
+    const countEl = document.getElementById('wm-cart-count');
+    const totalEl = document.getElementById('wm-cart-total');
+    let currSymbol = (typeof settings !== 'undefined' && settings.currency) ? settings.currency : '$';
+
+    if (countEl) countEl.textContent = `${count} item(s) selected`;
+    if (totalEl) totalEl.textContent = `${currSymbol}${total.toFixed(2)}`;
+}
+
+function openWaiterReviewModal() {
+    if (waiterCart.length === 0) {
+        alert('Your order cart is empty! Add items first.');
+        return;
+    }
+
+    const modal = document.getElementById('wm-review-modal');
+    const info = document.getElementById('wm-review-table-waiter');
+    const itemsContainer = document.getElementById('wm-review-items');
+    const grandTotalEl = document.getElementById('wm-review-grand-total');
+
+    if (!modal) return;
+
+    if (info) info.textContent = `${currentWaiterTable} • Waiter: ${currentWaiterName}`;
+
+    let currSymbol = (typeof settings !== 'undefined' && settings.currency) ? settings.currency : '$';
+    let total = 0;
+    let html = '';
+    waiterCart.forEach(item => {
+        const itemTotal = item.price * item.qty;
+        total += itemTotal;
+        html += `
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px dashed var(--border-color);">
+                <div>
+                    <div style="font-weight: 600;">${item.name}</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted);">${currSymbol}${item.price.toFixed(2)} x ${item.qty}</div>
+                </div>
+                <div style="font-weight: 700; color: var(--primary-color);">${currSymbol}${itemTotal.toFixed(2)}</div>
+            </div>
+        `;
+    });
+
+    if (itemsContainer) itemsContainer.innerHTML = html;
+    if (grandTotalEl) grandTotalEl.textContent = `${currSymbol}${total.toFixed(2)}`;
+
+    modal.style.display = 'flex';
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function closeWaiterReviewModal() {
+    const modal = document.getElementById('wm-review-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+async function submitWaiterOrderToCloud() {
+    if (waiterCart.length === 0) return;
+
+    const btn = document.getElementById('wm-submit-order-btn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = 'Sending Order...';
+    }
+
+    const orderId = 'WORD-' + Date.now().toString().slice(-6) + '-' + Math.floor(Math.random() * 100);
+    let totalAmt = 0;
+    const itemsPayload = waiterCart.map(item => {
+        const sub = item.price * item.qty;
+        totalAmt += sub;
+        return {
+            id: item.id,
+            name: item.name,
+            price: item.price,
+            salePrice: item.price,
+            qty: item.qty,
+            total: sub
+        };
+    });
+
+    const orderData = {
+        id: orderId,
+        invoiceNo: orderId,
+        branchId: (typeof currentBranchId !== 'undefined' ? currentBranchId : 'main_branch'),
+        waiterName: currentWaiterName,
+        tableNumber: currentWaiterTable,
+        customer: { name: 'Table ' + currentWaiterTable, phone: currentWaiterName },
+        customerName: 'Table ' + currentWaiterTable + ' (' + currentWaiterName + ')',
+        orderType: 'Dine-In',
+        orderRef: 'Table ' + currentWaiterTable,
+        items: itemsPayload,
+        totalAmount: totalAmt,
+        grandTotal: totalAmt,
+        status: 'Pending',
+        isDigitalOrder: true,
+        isWaiterOrder: true,
+        createdAt: new Date().toISOString(),
+        date: new Date().toISOString()
+    };
+
+    try {
+        if (isFirebaseEnabled && db) {
+            // Write separate document to waiter_orders collection for concurrency safety
+            await db.collection('waiter_orders').doc(orderId).set(orderData);
+        } else {
+            // Local fallback
+            let localOrders = JSON.parse(localStorage.getItem('mediflow_digital_orders')) || [];
+            localOrders.unshift(orderData);
+            localStorage.setItem('mediflow_digital_orders', JSON.stringify(localOrders));
+        }
+
+        alert(`✅ Order #${orderId} Sent to Kitchen & PC!\nTable: ${currentWaiterTable}\nWaiter: ${currentWaiterName}`);
+        
+        waiterCart = [];
+        updateWaiterCartUI();
+        closeWaiterReviewModal();
+        renderWaiterMenu();
+    } catch (e) {
+        console.error("Error submitting waiter order:", e);
+        alert("Failed to send order to cloud: " + (e.message || e));
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i data-lucide="send"></i> Send Order';
+        }
+    }
+}
+
