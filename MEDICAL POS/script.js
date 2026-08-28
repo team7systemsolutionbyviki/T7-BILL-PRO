@@ -581,7 +581,9 @@ async function syncFromCloud() {
                     existingLocal = JSON.parse(localStorage.getItem(localKey)) || [];
                 } catch (e) {}
 
-                if (arrayData.length === 0 && Array.isArray(existingLocal) && existingLocal.length > 0) {
+                if (Array.isArray(existingLocal) && existingLocal.length > arrayData.length) {
+                    // Local has more items than cloud. Likely an offline/failed sync.
+                    // Do not overwrite local data with older cloud data to prevent data loss.
                     continue;
                 }
 
@@ -701,7 +703,9 @@ function setupCloudListener() {
                                 existingLocal = JSON.parse(localStorage.getItem(localKey)) || [];
                             } catch (e) {}
 
-                            if (arrayData.length === 0 && Array.isArray(existingLocal) && existingLocal.length > 0) {
+                            if (Array.isArray(existingLocal) && existingLocal.length > arrayData.length) {
+                                // Local has more items than cloud. Likely an offline/failed sync.
+                                // Do not overwrite local data with older cloud data to prevent data loss.
                                 return;
                             }
 
