@@ -7,6 +7,29 @@ let cashOpenings = {};
 let currentBranchId = sessionStorage.getItem('mediflow_current_branch') || 'branch_default';
 const branchSpecificKeys = ['mediflow_products', 'mediflow_sales', 'mediflow_settings', 'mediflow_purchases', 'mediflow_expenses', 'mediflow_categories', 'mediflow_expense_categories', 'mediflow_customers', 'mediflow_customer_payments', 'mediflow_suppliers', 'mediflow_supplier_payments', 'mediflow_held_carts', 'mediflow_amc', 'mediflow_staff', 'mediflow_attendance', 'mediflow_staff_advances', 'mediflow_salary_payments', 'mediflow_digital_orders', 'mediflow_doctors', 'mediflow_tables', 'mediflow_stock_in_logs', 'mediflow_cake_flavors', 'mediflow_cancelled_digital_orders', 'mediflow_cash_transactions', 'mediflow_cash_openings'];
 
+function isValidCategoryName(catName) {
+    if (!catName) return false;
+    const str = String(catName).trim();
+    if (!str || str === 'undefined' || str === 'null') return false;
+    if (str.length > 60) return false;
+    
+    if (str.includes('[Content_Types]') || str.includes('worksheets/') || str.includes('sheet1.xml') || str.includes('theme/theme') || str.includes('docProps/') || str.includes('xl/')) {
+        return false;
+    }
+    if (str.includes('<xml') || str.includes('<?xml') || str.includes('</') || str.startsWith('PK\x03\x04') || str.includes('PK!')) {
+        return false;
+    }
+    if (/[\x00-\x1F\x7F-\x9F\uFFFD]/.test(str)) {
+        return false;
+    }
+    const nonAsciiOrSymbolCount = (str.match(/[^a-zA-Z0-9\s\-_&/().,+]/g) || []).length;
+    if (nonAsciiOrSymbolCount > 3 && nonAsciiOrSymbolCount / str.length > 0.3) {
+        return false;
+    }
+    return true;
+}
+window.isValidCategoryName = isValidCategoryName;
+
 const originalGetItem = localStorage.getItem;
 const originalSetItem = localStorage.setItem;
 const originalRemoveItem = localStorage.removeItem;
@@ -357,18 +380,32 @@ function loadBranchData() {
 
     expenses = getLegacyOrBranchData('mediflow_expenses') || [];
     categories = getLegacyOrBranchData('mediflow_categories') || ['Tablet', 'Syrup', 'Injection', 'Capsule', 'Ointment', 'Other'];
+    categories = (Array.isArray(categories) ? categories : []).filter(isValidCategoryName);
+    
     const catSet = new Set(categories.map(c => String(c).trim()).filter(Boolean));
     const catLowerSet = new Set(Array.from(catSet).map(c => c.toLowerCase()));
-    products.forEach(p => {
-        if (p.category) {
-            const catClean = String(p.category).trim();
-            if (catClean && !catLowerSet.has(catClean.toLowerCase())) {
-                catLowerSet.add(catClean.toLowerCase());
-                catSet.add(catClean);
+    
+    if (Array.isArray(products)) {
+        let prodMod = false;
+        products.forEach(p => {
+            if (p.category) {
+                const catClean = String(p.category).trim();
+                if (!isValidCategoryName(catClean)) {
+                    p.category = 'Other';
+                    prodMod = true;
+                } else if (!catLowerSet.has(catClean.toLowerCase())) {
+                    catLowerSet.add(catClean.toLowerCase());
+                    catSet.add(catClean);
+                }
             }
+        });
+        if (prodMod) {
+            localStorage.setItem('mediflow_products', JSON.stringify(products));
         }
-    });
-    categories = Array.from(catSet);
+    }
+    
+    categories = Array.from(catSet).filter(isValidCategoryName);
+    if (categories.length === 0) categories = ['Tablet', 'Syrup', 'Injection', 'Capsule', 'Ointment', 'Other'];
     localStorage.setItem('mediflow_categories', JSON.stringify(categories));
 
     expenseCategories = getLegacyOrBranchData('mediflow_expense_categories') || ['Rent', 'Electricity', 'Salary', 'Maintenance', 'Other'];
@@ -689,7 +726,13 @@ function setupCloudListener() {
                             products = recoverProductsFromSales(products, sales, purchases);
                             localStorage.setItem('mediflow_products', JSON.stringify(products));
                         }
-                        initApp();
+                        if (typeof isWaiterMobileMode !== 'undefined' && isWaiterMobileMode) {
+                            if (typeof populateWaiterPickers === 'function') populateWaiterPickers();
+                            if (typeof renderWaiterCategories === 'function') renderWaiterCategories();
+                            if (typeof renderWaiterMenu === 'function') renderWaiterMenu();
+                        } else {
+                            initApp();
+                        }
                     } finally {
                         isSyncingFromCloud = false;
                     }
@@ -1029,7 +1072,11 @@ function initApp() {
         if (urlParams.get('mode') === 'waiter' || urlParams.get('mode') === 'waiter-order') {
             isWaiterMobileMode = true;
             const targetBranch = urlParams.get('branch');
-            if (targetBranch) currentBranchId = targetBranch;
+            if (targetBranch) {
+                currentBranchId = targetBranch;
+                sessionStorage.setItem('mediflow_current_branch', targetBranch);
+            }
+            if (typeof loadBranchData === 'function') loadBranchData();
             initWaiterMobileMode();
             return;
         }
@@ -1814,13 +1861,18 @@ function setupEventListeners() {
         });
     }
 
-    document.getElementById('supplier-list-search').addEventListener('input', renderSuppliers);
-    document.getElementById('supplier-payment-form').addEventListener('submit', handleSupplierPaymentSubmit);
-    document.getElementById('payment-form').addEventListener('submit', handlePaymentSubmit);
+    const attachEvent = (id, event, handler) => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener(event, handler);
+    };
 
-    document.getElementById('save-bill-btn').addEventListener('click', () => processSale(false));
-    document.getElementById('generate-bill-btn').addEventListener('click', () => processSale(true));
-    document.getElementById('whatsapp-bill-btn').addEventListener('click', () => processSale(false, true));
+    attachEvent('supplier-list-search', 'input', renderSuppliers);
+    attachEvent('supplier-payment-form', 'submit', handleSupplierPaymentSubmit);
+    attachEvent('payment-form', 'submit', handlePaymentSubmit);
+
+    attachEvent('save-bill-btn', 'click', () => processSale(false));
+    attachEvent('generate-bill-btn', 'click', () => processSale(true));
+    attachEvent('whatsapp-bill-btn', 'click', () => processSale(false, true));
 
     // Logo Upload handler
     const logoUpload = document.getElementById('set-shop-logo-upload');
@@ -2694,9 +2746,9 @@ function renderProducts() {
         const searchInput = document.getElementById('product-list-search');
         const query = searchInput ? searchInput.value.toLowerCase() : '';
 
-        let filtered = products;
+        let filtered = [...products];
         if (query) {
-            filtered = products.filter(p => 
+            filtered = filtered.filter(p => 
                 (p.name && p.name.toLowerCase().includes(query)) || 
                 (p.barcode && String(p.barcode).toLowerCase().includes(query)) || 
                 (p.batch && String(p.batch).toLowerCase().includes(query)) ||
@@ -2704,47 +2756,62 @@ function renderProducts() {
             );
         }
 
-        filtered.forEach(p => {
-        const tr = document.createElement('tr');
-        const parsedExpiry = parseImportDate(p.expiry);
-        const isExpired = new Date(parsedExpiry) < new Date();
-        const isLowStock = p.stock <= 10 && p.stock < 999999;
-        const displayStock = p.stock >= 999999 ? '∞' : p.stock;
-        const unitDisplay = (p.unit || 'pcs').toUpperCase();
-        const barcodeDisplay = (p.barcode || p.code || p.bar_code || '').trim();
+        const sortSelect = document.getElementById('product-list-sort');
+        const sortMode = sortSelect ? sortSelect.value : 'default';
+        
+        if (sortMode !== 'default') {
+            filtered.sort((a, b) => {
+                if (sortMode === 'name_asc') return (a.name || '').localeCompare(b.name || '');
+                if (sortMode === 'name_desc') return (b.name || '').localeCompare(a.name || '');
+                if (sortMode === 'category_asc') return (a.category || '').localeCompare(b.category || '');
+                if (sortMode === 'category_desc') return (b.category || '').localeCompare(a.category || '');
+                if (sortMode === 'price_asc') return (parseFloat(a.salePrice) || 0) - (parseFloat(b.salePrice) || 0);
+                if (sortMode === 'price_desc') return (parseFloat(b.salePrice) || 0) - (parseFloat(a.salePrice) || 0);
+                return 0;
+            });
+        }
 
-        tr.innerHTML = `
-            <td>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    ${p.imageUrl ? `<img src="${p.imageUrl}" style="width: 32px; height: 32px; border-radius: 6px; object-fit: cover; border: 1px solid var(--border-color); flex-shrink: 0;">` : ''}
-                    <strong>${p.name}</strong>
-                </div>
-            </td>
-            <td>${barcodeDisplay ? `<span class="badge" style="background: #f1f5f9; color: #334155; font-family: monospace; font-weight: 600;"><i data-lucide="barcode" style="width: 13px; height: 13px; vertical-align: middle;"></i> ${barcodeDisplay}</span>` : '<span style="color: #94a3b8;">-</span>'}</td>
-            <td><span class="badge" style="background: #e2e8f0; color: #475569;">${p.category || 'General'}</span></td>
-            <td><span class="badge" style="background: #e0f2fe; color: #0369a1; font-weight: 600;">${unitDisplay}</span></td>
-            <td>${p.hsn || '-'}</td>
-            <td>${p.batch || '-'}</td>
-            <td>
-                <span class="badge ${isExpired ? 'badge-danger' : (isNearExpiry(parsedExpiry) ? 'badge-warning' : 'badge-success')}">
-                    ${parsedExpiry}
-                </span>
-            </td>
-            <td>${settings.currency}${p.mrp}</td>
-            <td>${settings.currency}${p.salePrice} / ${p.unit || 'pcs'}</td>
-            <td>
-                <span class="badge ${isLowStock ? 'badge-danger' : 'badge-success'}">
-                    ${displayStock} ${p.unit || 'pcs'}
-                </span>
-            </td>
-            <td>
-                <button class="btn btn-primary" onclick="addToCartAndSwitch('${p.id}')" style="padding: 5px; background: var(--secondary-color);"><i data-lucide="shopping-cart" style="width: 16px;"></i></button>
-                <button class="btn btn-outline" onclick="editProduct('${p.id}')" style="padding: 5px;"><i data-lucide="edit-2" style="width: 16px;"></i></button>
-                ${isSuperAdmin ? `<button class="btn btn-outline" onclick="deleteProduct('${p.id}')" style="padding: 5px; color: var(--danger-color);"><i data-lucide="trash" style="width: 16px;"></i></button>` : ''}
-            </td>
-        `;
-        tbody.appendChild(tr);
+        let htmlRows = '';
+        filtered.forEach(p => {
+            const parsedExpiry = parseImportDate(p.expiry);
+            const isExpired = new Date(parsedExpiry) < new Date();
+            const isLowStock = p.stock <= 10 && p.stock < 999999;
+            const displayStock = p.stock >= 999999 ? '∞' : p.stock;
+            const unitDisplay = (p.unit || 'pcs').toUpperCase();
+            const barcodeDisplay = (p.barcode || p.code || p.bar_code || '').trim();
+
+            htmlRows += `<tr>
+                <td>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        ${p.imageUrl ? `<img src="${p.imageUrl}" style="width: 32px; height: 32px; border-radius: 6px; object-fit: cover; border: 1px solid var(--border-color); flex-shrink: 0;">` : ''}
+                        <strong>${p.name}</strong>
+                    </div>
+                </td>
+                <td>${barcodeDisplay ? `<span class="badge" style="background: #f1f5f9; color: #334155; font-family: monospace; font-weight: 600;"><i data-lucide="barcode" style="width: 13px; height: 13px; vertical-align: middle;"></i> ${barcodeDisplay}</span>` : '<span style="color: #94a3b8;">-</span>'}</td>
+                <td><span class="badge" style="background: #e2e8f0; color: #475569;">${p.category || 'General'}</span></td>
+                <td><span class="badge" style="background: #e0f2fe; color: #0369a1; font-weight: 600;">${unitDisplay}</span></td>
+                <td>${p.hsn || '-'}</td>
+                <td>${p.batch || '-'}</td>
+                <td>
+                    <span class="badge ${isExpired ? 'badge-danger' : (isNearExpiry(parsedExpiry) ? 'badge-warning' : 'badge-success')}">
+                        ${parsedExpiry}
+                    </span>
+                </td>
+                <td>${settings.currency}${p.mrp}</td>
+                <td>${settings.currency}${p.salePrice} / ${p.unit || 'pcs'}</td>
+                <td>
+                    <span class="badge ${isLowStock ? 'badge-danger' : 'badge-success'}">
+                        ${displayStock} ${p.unit || 'pcs'}
+                    </span>
+                </td>
+                <td>
+                    <button class="btn btn-primary" onclick="addToCartAndSwitch('${p.id}')" style="padding: 5px; background: var(--secondary-color);"><i data-lucide="shopping-cart" style="width: 16px;"></i></button>
+                    <button class="btn btn-outline" onclick="editProduct('${p.id}')" style="padding: 5px;"><i data-lucide="edit-2" style="width: 16px;"></i></button>
+                    ${isSuperAdmin ? `<button class="btn btn-outline" onclick="deleteProduct('${p.id}')" style="padding: 5px; color: var(--danger-color);"><i data-lucide="trash" style="width: 16px;"></i></button>` : ''}
+                </td>
+            </tr>`;
         });
+        tbody.innerHTML = htmlRows;
 
         if (products.length === 0) {
             tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 2rem; color: var(--text-muted);">No products found in cloud or local. Click "Add New Product" to start.</td></tr>';
@@ -2993,13 +3060,14 @@ function editProduct(id) {
 function ensureCategoryExists(catName) {
     if (!catName) return;
     const trimmed = String(catName).trim();
-    if (!trimmed || trimmed === 'undefined' || trimmed === 'null') return;
+    if (!isValidCategoryName(trimmed)) return;
 
     if (!Array.isArray(categories)) categories = [];
+    categories = categories.filter(isValidCategoryName);
     const exists = categories.some(c => String(c).trim().toLowerCase() === trimmed.toLowerCase());
     if (!exists) {
         categories.push(trimmed);
-        categories = Array.from(new Set(categories.map(c => String(c).trim()).filter(Boolean)));
+        categories = Array.from(new Set(categories.map(c => String(c).trim()).filter(isValidCategoryName)));
         localStorage.setItem('mediflow_categories', JSON.stringify(categories));
         if (typeof renderCategoryManagement === 'function') renderCategoryManagement();
         if (typeof updateCategoryDropdowns === 'function') updateCategoryDropdowns();
@@ -3010,19 +3078,21 @@ window.ensureCategoryExists = ensureCategoryExists;
 
 function ensureAllCategoriesFromProducts() {
     if (!Array.isArray(categories)) categories = [];
-    categories = Array.from(new Set(categories.map(c => String(c).trim()).filter(Boolean)));
+    categories = Array.from(new Set(categories.map(c => String(c).trim()).filter(isValidCategoryName)));
 
     if (Array.isArray(products)) {
         products.forEach(p => {
             if (p.category && String(p.category).trim() !== '') {
                 const catClean = String(p.category).trim();
-                if (!categories.some(c => c.toLowerCase() === catClean.toLowerCase())) {
+                if (isValidCategoryName(catClean) && !categories.some(c => c.toLowerCase() === catClean.toLowerCase())) {
                     categories.push(catClean);
                 }
             }
         });
     }
 
+    categories = categories.filter(isValidCategoryName);
+    if (categories.length === 0) categories = ['Tablet', 'Syrup', 'Injection', 'Capsule', 'Ointment', 'Other'];
     localStorage.setItem('mediflow_categories', JSON.stringify(categories));
     if (typeof renderCategoryManagement === 'function') renderCategoryManagement();
     if (typeof updateCategoryDropdowns === 'function') updateCategoryDropdowns();
@@ -3189,6 +3259,7 @@ function renderCart() {
     if (!tbody) return;
     tbody.innerHTML = '';
 
+    let htmlRows = '';
     cart.forEach((item, index) => {
         const lineTotal = getItemLineTotal(item);
 
@@ -3213,26 +3284,27 @@ function renderCart() {
         const qtyStep = isGramOrMl ? '1' : (item.unit === 'kg' || item.unit === 'ltr' ? '0.001' : '1');
         const qtyPlaceholder = item.saleUnit === 'grm' ? '250 grm' : (item.saleUnit === 'ml' ? '500 ml' : '1');
 
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td>${item.name}</td>
-            <td>${item.batch || 'GEN'}</td>
-            <td>${settings.currency}${item.salePrice}</td>
-            <td>
-                <input type="number" value="${item.qty}" min="0.001" step="${qtyStep}" placeholder="${qtyPlaceholder}"
-                    onchange="updateQty('${item.id}', this.value)" class="form-control qty-input">
-            </td>
-            <td>${unitSelectorHtml}</td>
-            <td>${item.gst}%</td>
-            <td>${settings.currency}${lineTotal.toFixed(2)}</td>
-            <td>
-                <button class="btn btn-outline" onclick="removeFromCart(${index})" style="color: var(--danger-color); padding: 4px 8px;">
-                    <i data-lucide="x" style="width: 16px;"></i>
-                </button>
-            </td>
+        htmlRows += `
+            <tr>
+                <td>${item.name}</td>
+                <td>${item.batch || 'GEN'}</td>
+                <td>${settings.currency}${item.salePrice}</td>
+                <td>
+                    <input type="number" value="${item.qty}" min="0.001" step="${qtyStep}" placeholder="${qtyPlaceholder}"
+                        onchange="updateQty('${item.id}', this.value)" class="form-control qty-input">
+                </td>
+                <td>${unitSelectorHtml}</td>
+                <td>${item.gst}%</td>
+                <td>${settings.currency}${lineTotal.toFixed(2)}</td>
+                <td>
+                    <button class="btn btn-outline" onclick="removeFromCart(${index})" style="color: var(--danger-color); padding: 4px 8px;">
+                        <i data-lucide="x" style="width: 16px;"></i>
+                    </button>
+                </td>
+            </tr>
         `;
-        tbody.appendChild(tr);
     });
+    tbody.innerHTML = htmlRows;
     
     lucide.createIcons();
     updateCartTotals();
@@ -3640,12 +3712,12 @@ function printBill(sale) {
             const upiString = `upi://pay?pa=${settings.shopUpi.trim()}&pn=${encodeURIComponent(settings.shopName)}&am=${sale.grandTotal.toFixed(2)}`;
             const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(upiString)}`;
             
-            qrImg.onload = triggerPrint;
-            qrImg.onerror = triggerPrint;
-            
             qrImg.src = qrUrl;
             qrImg.style.display = 'inline-block';
             qrPlaceholder.style.display = 'none';
+            
+            // Do not block checkout waiting for external QR generation
+            triggerPrint();
         } else {
             qrImg.style.display = 'none';
             qrPlaceholder.style.display = 'inline-flex';
@@ -3785,14 +3857,14 @@ function renderSalesHistory() {
             });
         }
 
+        let htmlRows = '';
         filteredSales.sort((a, b) => new Date(b.date) - new Date(a.date)).forEach(s => {
-            const tr = document.createElement('tr');
             const amount = parseFloat(s.grandTotal || s.total || 0);
             const itemsCount = s.items ? s.items.length : 0;
             const custName = (s.customer && s.customer.name) ? s.customer.name : 'Cash Customer';
             const payMode = s.paymentMode || 'Cash';
 
-            tr.innerHTML = `
+            htmlRows += `<tr>
                 <td>#${s.invoiceNo || '---'}</td>
                 <td>${s.date ? new Date(s.date).toLocaleString() : '---'}</td>
                 <td>${custName}</td>
@@ -3805,9 +3877,9 @@ function renderSalesHistory() {
                     ${!s.isReturn ? `<button class="btn btn-outline" onclick="openReturnBillModal('${s.invoiceNo || s.id}')" title="Return Bill" style="padding: 5px; color: var(--danger-color);"><i data-lucide="rotate-ccw" style="width: 16px;"></i></button>` : ''}
                     ${sessionStorage.getItem('mediflow_user') === 'VIKI' ? `<button class="btn btn-outline" onclick="deleteSale('${s.id}')" title="Delete Sale" style="padding: 5px; color: var(--danger-color);"><i data-lucide="trash" style="width: 16px;"></i></button>` : ''}
                 </td>
-            `;
-            tbody.appendChild(tr);
+            </tr>`;
         });
+        tbody.innerHTML = htmlRows;
         lucide.createIcons();
     } catch (e) {
         console.error('Error rendering sales history:', e);
@@ -4302,8 +4374,8 @@ function renderPurchases() {
         tbody.innerHTML = '';
         const curr = (typeof settings !== 'undefined' && settings.currency) ? settings.currency : '₹';
         
+        let htmlRows = '';
         purchases.sort((a,b) => new Date(b.date) - new Date(a.date)).forEach(p => {
-            const tr = document.createElement('tr');
             const totalVal = parseFloat(p.grandTotal || p.total || 0).toFixed(2);
             const itemsSummary = p.items && Array.isArray(p.items) && p.items.length > 0 
                 ? `${p.items.length} item(s)`
@@ -4312,31 +4384,33 @@ function renderPurchases() {
             const invoiceNo = p.invoice ? (typeof escapeHtml === 'function' ? escapeHtml(p.invoice) : p.invoice) : p.id;
             const dateStr = p.date || '---';
 
-            tr.innerHTML = `
-                <td style="padding: 8px;">
-                    <strong>${dateStr}</strong><br>
-                    <small style="color: var(--text-muted);">${invoiceNo}</small>
-                </td>
-                <td style="padding: 8px;">
-                    <strong>${supplierName}</strong><br>
-                    <small style="color: var(--primary-color);">${itemsSummary}</small>
-                </td>
-                <td style="padding: 8px; text-align: right; font-weight: 600;">
-                    ${curr}${totalVal}
-                </td>
-                <td style="padding: 8px; text-align: center;">
-                    <div style="display: flex; gap: 4px; justify-content: center;">
-                        <button class="btn btn-outline" onclick="viewPurchaseDetails('${p.id}')" style="padding: 4px 8px;" title="View Details">
-                            <i data-lucide="eye" style="width: 14px; height: 14px;"></i>
-                        </button>
-                        <button class="btn btn-outline" onclick="deletePurchase('${p.id}')" style="padding: 4px 8px; color: var(--danger-color);" title="Delete Purchase">
-                            <i data-lucide="trash" style="width: 14px; height: 14px;"></i>
-                        </button>
-                    </div>
-                </td>
+            htmlRows += `
+                <tr>
+                    <td style="padding: 8px;">
+                        <strong>${dateStr}</strong><br>
+                        <small style="color: var(--text-muted);">${invoiceNo}</small>
+                    </td>
+                    <td style="padding: 8px;">
+                        <strong>${supplierName}</strong><br>
+                        <small style="color: var(--primary-color);">${itemsSummary}</small>
+                    </td>
+                    <td style="padding: 8px; text-align: right; font-weight: 600;">
+                        ${curr}${totalVal}
+                    </td>
+                    <td style="padding: 8px; text-align: center;">
+                        <div style="display: flex; gap: 4px; justify-content: center;">
+                            <button class="btn btn-outline" onclick="viewPurchaseDetails('${p.id}')" style="padding: 4px 8px;" title="View Details">
+                                <i data-lucide="eye" style="width: 14px; height: 14px;"></i>
+                            </button>
+                            <button class="btn btn-outline" onclick="deletePurchase('${p.id}')" style="padding: 4px 8px; color: var(--danger-color);" title="Delete Purchase">
+                                <i data-lucide="trash" style="width: 14px; height: 14px;"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
             `;
-            tbody.appendChild(tr);
         });
+        tbody.innerHTML = htmlRows;
 
         if (typeof lucide !== 'undefined' && lucide.createIcons) {
             lucide.createIcons();
@@ -4987,18 +5061,53 @@ function renderCategoryManagement() {
     const list = document.getElementById('category-list');
     if (!list) return;
     
+    if (Array.isArray(categories)) {
+        const cleanCats = categories.filter(isValidCategoryName);
+        if (cleanCats.length !== categories.length) {
+            categories = cleanCats;
+            if (categories.length === 0) categories = ['Tablet', 'Syrup', 'Injection', 'Capsule', 'Ointment', 'Other'];
+            localStorage.setItem('mediflow_categories', JSON.stringify(categories));
+            if (typeof syncToCloud === 'function') syncToCloud('categories', categories);
+        }
+    }
+    
     list.innerHTML = categories.map(cat => `
         <div class="badge" style="background: var(--primary-light); color: var(--primary-color); padding: 5px 10px; display: flex; align-items: center; gap: 8px;">
             ${cat}
-            <i data-lucide="edit-2" style="width: 12px; cursor: pointer;" onclick="editCategoryName('${cat}')"></i>
-            <i data-lucide="x" style="width: 12px; cursor: pointer;" onclick="deleteCategory('${cat}')"></i>
+            <i data-lucide="edit-2" style="width: 12px; cursor: pointer;" onclick="editCategoryName('${cat.replace(/'/g, "\\'")}')"></i>
+            <i data-lucide="x" style="width: 12px; cursor: pointer;" onclick="deleteCategory('${cat.replace(/'/g, "\\'")}')"></i>
         </div>
     `).join('');
     
-    // Also update product category dropdowns
     updateCategoryDropdowns();
-    lucide.createIcons();
+    if (typeof lucide !== 'undefined') lucide.createIcons();
 }
+
+function cleanInvalidCategoriesUser() {
+    if (!Array.isArray(categories)) categories = [];
+    const beforeCount = categories.length;
+    categories = categories.filter(isValidCategoryName);
+    if (categories.length === 0) categories = ['Tablet', 'Syrup', 'Injection', 'Capsule', 'Ointment', 'Other'];
+    
+    if (Array.isArray(products)) {
+        products.forEach(p => {
+            if (p.category && !isValidCategoryName(p.category)) {
+                p.category = categories[0] || 'General';
+            }
+        });
+        localStorage.setItem('mediflow_products', JSON.stringify(products));
+    }
+    
+    localStorage.setItem('mediflow_categories', JSON.stringify(categories));
+    if (typeof syncToCloud === 'function') syncToCloud('categories', categories);
+    renderCategoryManagement();
+    if (typeof renderProducts === 'function') renderProducts();
+    
+    const cleanedCount = Math.max(0, beforeCount - categories.length);
+    alert(`Cleaned up ${cleanedCount} invalid/corrupted category entries successfully!`);
+}
+
+window.cleanInvalidCategoriesUser = cleanInvalidCategoriesUser;
 
 function updateCategoryDropdowns() {
     const pCatSelect = document.getElementById('p-category');
@@ -5014,6 +5123,10 @@ function addCategory() {
     const name = input.value.trim();
     
     if (!name) return;
+    if (!isValidCategoryName(name)) {
+        alert('Invalid category name! Please enter a normal name.');
+        return;
+    }
     if (categories.includes(name)) {
         alert('Category already exists!');
         return;
@@ -5030,6 +5143,10 @@ function editCategoryName(oldName) {
     if (!newName || newName.trim() === oldName) return;
     
     const trimmedNewName = newName.trim();
+    if (!isValidCategoryName(trimmedNewName)) {
+        alert('Invalid category name! Please enter a valid name.');
+        return;
+    }
     if (categories.includes(trimmedNewName)) {
         alert('Category name already exists!');
         return;
@@ -5078,7 +5195,9 @@ function deleteCategory(name) {
 }
 
 function saveCategories() {
+    categories = categories.filter(isValidCategoryName);
     localStorage.setItem('mediflow_categories', JSON.stringify(categories));
+    if (typeof syncToCloud === 'function') syncToCloud('categories', categories);
 }
 
 // --- Expense Categories Management ---
@@ -7141,13 +7260,16 @@ function renderDigitalOrders() {
             ? `<span class="badge-stock badge-lowstock" style="font-size: 0.8rem; padding: 4px 10px;"><i data-lucide="clock" style="width: 12px; vertical-align: middle;"></i> Pending</span>`
             : `<span class="badge-stock badge-instock" style="font-size: 0.8rem; padding: 4px 10px;"><i data-lucide="check-circle-2" style="width: 12px; vertical-align: middle;"></i> Billed</span>`;
 
+        const waiterNameStr = o.waiterName || (o.customer && o.customer.phone && isNaN(o.customer.phone) ? o.customer.phone : '');
+        const subInfoStr = waiterNameStr ? `👨‍🍳 Waiter: ${waiterNameStr}` : custPhone;
+
         html += `
             <tr>
                 <td><strong>#${o.invoiceNo || o.id}</strong></td>
                 <td>${orderDate}</td>
                 <td>
                     <div style="font-weight: 600;">${custName}</div>
-                    <div style="font-size: 0.8rem; color: var(--text-muted);">${custPhone}</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted);">${subInfoStr}</div>
                 </td>
                 <td>${typeBadge}</td>
                 <td>${detailsHtml}</td>
@@ -7248,8 +7370,8 @@ function loadDigitalOrderToBilling(orderId) {
     }
 
     // Pre-fill Billing Table Select if order was for a Table
-    if (order.orderRef || order.tableName) {
-        const targetTable = order.orderRef || order.tableName;
+    if (order.orderRef || order.tableName || order.tableNumber) {
+        const targetTable = order.orderRef || order.tableName || order.tableNumber;
         const billingSelect = document.getElementById('billing-table-select');
         if (billingSelect) {
             const cleanTarget = String(targetTable).trim().toLowerCase();
@@ -7257,6 +7379,23 @@ function loadDigitalOrderToBilling(orderId) {
             if (matchingOpt) {
                 billingSelect.value = matchingOpt.value;
             }
+        }
+    }
+
+    // Pre-fill Billing Waiter Select if order has a Waiter Name
+    const targetWaiter = order.waiterName || order.waiter || (order.customer && order.customer.phone && isNaN(order.customer.phone) ? order.customer.phone : '');
+    if (targetWaiter) {
+        const waiterSelect = document.getElementById('billing-waiter-select');
+        if (waiterSelect) {
+            const cleanWaiter = String(targetWaiter).trim().toLowerCase();
+            let matchingOpt = Array.from(waiterSelect.options).find(opt => opt.value.toLowerCase() === cleanWaiter || opt.textContent.toLowerCase().includes(cleanWaiter));
+            if (!matchingOpt) {
+                matchingOpt = document.createElement('option');
+                matchingOpt.value = targetWaiter;
+                matchingOpt.textContent = targetWaiter;
+                waiterSelect.appendChild(matchingOpt);
+            }
+            waiterSelect.value = matchingOpt.value;
         }
     }
 
@@ -7834,7 +7973,7 @@ function printDigitalOrderKOT(orderId) {
     const custPhone = (order.customer && order.customer.phone) ? order.customer.phone : '-';
     const orderTypeStr = order.orderType || 'Digital Order';
     const notesStr = order.notes || '';
-    const deliveryTime = order.deliveryDate || 'Immediate / Store Pickup';
+    const deliveryTime = (order.deliveryDate || order.deliveryTime || '').replace(/Immediate\s*\/\s*Store\s*Pickup/i, '').trim();
 
     let itemsHtml = '';
     if (order.items && Array.isArray(order.items)) {
@@ -8204,6 +8343,7 @@ function openStaffModal(staffId = null) {
         document.getElementById('staff-joining-date').value = new Date().toISOString().split('T')[0];
     }
     modal.style.display = 'flex';
+    if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 
 function closeStaffModal() {
@@ -11394,6 +11534,7 @@ window.showWaiterPickerStep = showWaiterPickerStep;
 window.renderWaiterMenu = renderWaiterMenu;
 window.setWaiterCategory = setWaiterCategory;
 window.updateWaiterCartItem = updateWaiterCartItem;
+window.handleWaiterBarcodeScan = handleWaiterBarcodeScan;
 window.openWaiterReviewModal = openWaiterReviewModal;
 window.closeWaiterReviewModal = closeWaiterReviewModal;
 window.submitWaiterOrderToCloud = submitWaiterOrderToCloud;
@@ -11512,57 +11653,149 @@ function initWaiterMobileMode() {
     const branchBadge = document.getElementById('waiter-mobile-branch-badge');
     if (branchBadge) branchBadge.textContent = `Branch ID: ${currentBranchId || 'Default'}`;
 
-    // Populate pickers
+    // Populate pickers & menu
     populateWaiterPickers();
+    renderWaiterCategories();
+    renderWaiterMenu();
+
+    // If cloud enabled, sync fresh branch data from Firestore
+    if (isFirebaseEnabled && db && typeof syncFromCloud === 'function') {
+        syncFromCloud().then(() => {
+            if (typeof loadBranchData === 'function') loadBranchData();
+            populateWaiterPickers();
+            renderWaiterCategories();
+            renderWaiterMenu();
+        }).catch(e => {
+            console.warn("Cloud sync error in waiter mode:", e);
+        });
+    }
 
     // Finish boot loader if present
     if (typeof window.finishAppBootLoader === 'function') window.finishAppBootLoader();
 }
 
+let selectedWaiterChipVal = '';
+let selectedTableChipVal = '';
+
+function selectWaiterChip(val) {
+    selectedWaiterChipVal = val;
+    const waiterSel = document.getElementById('wm-waiter-select');
+    const customInput = document.getElementById('wm-waiter-custom');
+    if (waiterSel) {
+        waiterSel.value = val;
+        if (customInput) customInput.style.display = (val === 'OTHER') ? 'block' : 'none';
+    }
+    document.querySelectorAll('#wm-waiter-chips .wm-chip').forEach(c => {
+        c.classList.toggle('active', c.getAttribute('data-val') === val);
+    });
+}
+
+function selectTableChip(val) {
+    selectedTableChipVal = val;
+    const tableSel = document.getElementById('wm-table-select');
+    const customInput = document.getElementById('wm-table-custom');
+    if (tableSel) {
+        tableSel.value = val;
+        if (customInput) customInput.style.display = (val === 'OTHER') ? 'block' : 'none';
+    }
+    document.querySelectorAll('#wm-table-chips .wm-chip').forEach(c => {
+        c.classList.toggle('active', c.getAttribute('data-val') === val);
+    });
+}
+
+window.selectWaiterChip = selectWaiterChip;
+window.selectTableChip = selectTableChip;
+
 function populateWaiterPickers() {
     const waiterSel = document.getElementById('wm-waiter-select');
     const tableSel = document.getElementById('wm-table-select');
+    const waiterChipsContainer = document.getElementById('wm-waiter-chips');
+    const tableChipsContainer = document.getElementById('wm-table-chips');
     
+    let staffData = (typeof staffList !== 'undefined' && staffList.length > 0) ? staffList : (typeof getLegacyOrBranchData === 'function' ? getLegacyOrBranchData('mediflow_staff') : []);
+    let waiters = Array.isArray(staffData) ? staffData : [];
+    let waiterNames = [];
+    waiters.forEach(s => {
+        const name = typeof s === 'string' ? s : (s.name || s.staffName || s.username);
+        if (name && !waiterNames.includes(name)) waiterNames.push(name);
+    });
+    if (waiterNames.length === 0) waiterNames = ['Staff', 'Waiter 1', 'Waiter 2'];
+
     if (waiterSel) {
-        let staffData = (typeof staffList !== 'undefined' && staffList.length > 0) ? staffList : (typeof getLegacyOrBranchData === 'function' ? getLegacyOrBranchData('mediflow_staff') : []);
-        let waiters = Array.isArray(staffData) ? staffData : [];
         let html = '<option value="">-- Choose Waiter --</option>';
-        waiters.forEach(s => {
-            const name = typeof s === 'string' ? s : (s.name || s.staffName || s.username);
-            if (name) html += `<option value="${name}">${name}</option>`;
+        waiterNames.forEach(name => {
+            html += `<option value="${name}" ${selectedWaiterChipVal === name ? 'selected' : ''}>${name}</option>`;
         });
-        if (waiters.length === 0) {
-            html += '<option value="Waiter 1">Waiter 1</option><option value="Waiter 2">Waiter 2</option><option value="Staff">Staff</option>';
-        }
-        html += '<option value="OTHER">+ Type Custom Name</option>';
+        html += `<option value="OTHER" ${selectedWaiterChipVal === 'OTHER' ? 'selected' : ''}>+ Type Custom Name</option>`;
         waiterSel.innerHTML = html;
 
+        if (selectedWaiterChipVal) waiterSel.value = selectedWaiterChipVal;
+
         waiterSel.onchange = function() {
+            const val = this.value;
+            selectedWaiterChipVal = val;
             const customInput = document.getElementById('wm-waiter-custom');
-            if (customInput) customInput.style.display = (this.value === 'OTHER') ? 'block' : 'none';
+            if (customInput) customInput.style.display = (val === 'OTHER') ? 'block' : 'none';
+            document.querySelectorAll('#wm-waiter-chips .wm-chip').forEach(c => {
+                c.classList.toggle('active', c.getAttribute('data-val') === val);
+            });
         };
     }
 
-    if (tableSel) {
-        let tablesData = (typeof tableList !== 'undefined' && tableList.length > 0) ? tableList : (typeof getLegacyOrBranchData === 'function' ? getLegacyOrBranchData('mediflow_tables') : []);
-        let tables = Array.isArray(tablesData) ? tablesData : [];
-        let html = '<option value="">-- Choose Table --</option>';
-        tables.forEach(t => {
-            const tName = typeof t === 'string' ? t : (t.tableName || t.name || t.id);
-            if (tName) html += `<option value="${tName}">${tName}</option>`;
+    if (waiterChipsContainer) {
+        let chipHtml = '';
+        waiterNames.forEach(name => {
+            const isAct = (selectedWaiterChipVal === name);
+            chipHtml += `<button type="button" class="wm-chip ${isAct ? 'active' : ''}" data-val="${name}" onclick="selectWaiterChip('${name.replace(/'/g, "\\'")}')">👨‍🍳 ${name}</button>`;
         });
-        if (tables.length === 0) {
-            for (let i = 1; i <= 15; i++) {
-                html += `<option value="Table ${i}">Table ${i}</option>`;
-            }
+        const isOtherAct = (selectedWaiterChipVal === 'OTHER');
+        chipHtml += `<button type="button" class="wm-chip ${isOtherAct ? 'active' : ''}" data-val="OTHER" onclick="selectWaiterChip('OTHER')">✏️ Custom</button>`;
+        waiterChipsContainer.innerHTML = chipHtml;
+    }
+
+    let tablesData = (typeof tableList !== 'undefined' && tableList.length > 0) ? tableList : (typeof getLegacyOrBranchData === 'function' ? getLegacyOrBranchData('mediflow_tables') : []);
+    let tables = Array.isArray(tablesData) ? tablesData : [];
+    let tableNames = [];
+    tables.forEach(t => {
+        const tName = typeof t === 'string' ? t : (t.tableName || t.name || t.id);
+        if (tName && !tableNames.includes(tName)) tableNames.push(tName);
+    });
+    if (tableNames.length === 0) {
+        for (let i = 1; i <= 12; i++) {
+            tableNames.push(`Table ${i}`);
         }
-        html += '<option value="OTHER">+ Type Custom Table</option>';
+    }
+
+    if (tableSel) {
+        let html = '<option value="">-- Choose Table --</option>';
+        tableNames.forEach(tName => {
+            html += `<option value="${tName}" ${selectedTableChipVal === tName ? 'selected' : ''}>${tName}</option>`;
+        });
+        html += `<option value="OTHER" ${selectedTableChipVal === 'OTHER' ? 'selected' : ''}>+ Type Custom Table</option>`;
         tableSel.innerHTML = html;
 
+        if (selectedTableChipVal) tableSel.value = selectedTableChipVal;
+
         tableSel.onchange = function() {
+            const val = this.value;
+            selectedTableChipVal = val;
             const customInput = document.getElementById('wm-table-custom');
-            if (customInput) customInput.style.display = (this.value === 'OTHER') ? 'block' : 'none';
+            if (customInput) customInput.style.display = (val === 'OTHER') ? 'block' : 'none';
+            document.querySelectorAll('#wm-table-chips .wm-chip').forEach(c => {
+                c.classList.toggle('active', c.getAttribute('data-val') === val);
+            });
         };
+    }
+
+    if (tableChipsContainer) {
+        let chipHtml = '';
+        tableNames.forEach(tName => {
+            const isAct = (selectedTableChipVal === tName);
+            chipHtml += `<button type="button" class="wm-chip ${isAct ? 'active' : ''}" data-val="${tName}" onclick="selectTableChip('${tName.replace(/'/g, "\\'")}')">🍽️ ${tName}</button>`;
+        });
+        const isOtherAct = (selectedTableChipVal === 'OTHER');
+        chipHtml += `<button type="button" class="wm-chip ${isOtherAct ? 'active' : ''}" data-val="OTHER" onclick="selectTableChip('OTHER')">✏️ Custom</button>`;
+        tableChipsContainer.innerHTML = chipHtml;
     }
 }
 
@@ -11572,10 +11805,10 @@ function startWaiterOrderSession() {
     const tableSel = document.getElementById('wm-table-select');
     const tableCustom = document.getElementById('wm-table-custom');
 
-    let wName = waiterSel ? waiterSel.value : '';
+    let wName = selectedWaiterChipVal || (waiterSel ? waiterSel.value : '');
     if (wName === 'OTHER' && waiterCustom) wName = waiterCustom.value.trim();
     
-    let tNum = tableSel ? tableSel.value : '';
+    let tNum = selectedTableChipVal || (tableSel ? tableSel.value : '');
     if (tNum === 'OTHER' && tableCustom) tNum = tableCustom.value.trim();
 
     if (!wName) {
@@ -11613,7 +11846,10 @@ function resetWaiterSession() {
     waiterCart = [];
     currentWaiterName = '';
     currentWaiterTable = '';
+    selectedWaiterChipVal = '';
+    selectedTableChipVal = '';
     updateWaiterCartUI();
+    populateWaiterPickers();
     showWaiterPickerStep();
 }
 
@@ -11638,25 +11874,73 @@ function setWaiterCategory(cat) {
     renderWaiterMenu();
 }
 
+let waiterMenuViewMode = 'grid';
+
+function setWaiterMenuViewMode(mode) {
+    waiterMenuViewMode = mode;
+    const gridBtn = document.getElementById('wm-view-grid-btn');
+    const listBtn = document.getElementById('wm-view-list-btn');
+    if (gridBtn) {
+        gridBtn.style.background = (mode === 'grid') ? 'var(--primary-color)' : 'transparent';
+        gridBtn.style.color = (mode === 'grid') ? 'white' : 'var(--text-color)';
+    }
+    if (listBtn) {
+        listBtn.style.background = (mode === 'list') ? 'var(--primary-color)' : 'transparent';
+        listBtn.style.color = (mode === 'list') ? 'white' : 'var(--text-color)';
+    }
+    renderWaiterMenu();
+}
+
+window.setWaiterMenuViewMode = setWaiterMenuViewMode;
+
+function getCategoryEmoji(catName = '', prodName = '') {
+    const combined = (String(catName) + ' ' + String(prodName)).toLowerCase();
+    if (combined.includes('coffee') || combined.includes('tea') || combined.includes('hot')) return '☕';
+    if (combined.includes('cake') || combined.includes('bun') || combined.includes('bakery') || combined.includes('pudding')) return '🍰';
+    if (combined.includes('burger') || combined.includes('snack') || combined.includes('20 rs') || combined.includes('25rs')) return '🍔';
+    if (combined.includes('juice') || combined.includes('drink') || combined.includes('beverage') || combined.includes('soda')) return '🥤';
+    if (combined.includes('rice') || combined.includes('biryani') || combined.includes('meal')) return '🍲';
+    if (combined.includes('pizza')) return '🍕';
+    if (combined.includes('ice') || combined.includes('cream') || combined.includes('dessert')) return '🍦';
+    if (combined.includes('capsule') || combined.includes('tablet') || combined.includes('syrup')) return '💊';
+    return '🍽️';
+}
+
 function renderWaiterMenu() {
     const listEl = document.getElementById('wm-product-list');
     const searchVal = document.getElementById('wm-search-input') ? document.getElementById('wm-search-input').value.toLowerCase().trim() : '';
     if (!listEl) return;
+
+    if (waiterMenuViewMode === 'grid') {
+        listEl.style.display = 'grid';
+        listEl.style.gridTemplateColumns = 'repeat(2, 1fr)';
+        listEl.style.gap = '12px';
+    } else {
+        listEl.style.display = 'grid';
+        listEl.style.gridTemplateColumns = '1fr';
+        listEl.style.gap = '10px';
+    }
 
     let prods = (typeof products !== 'undefined' && products.length > 0) ? products : (typeof getLegacyOrBranchData === 'function' ? getLegacyOrBranchData('mediflow_products') : []);
     if (!Array.isArray(prods)) prods = [];
 
     let filtered = prods.filter(p => {
         const matchesCat = (selectedWaiterCategory === 'ALL') || (p.category === selectedWaiterCategory);
-        const matchesSearch = !searchVal || (p.name && p.name.toLowerCase().includes(searchVal)) || (p.category && p.category.toLowerCase().includes(searchVal));
+        const pBarcode = String(p.barcode || p.sku || p.code || p.id || '').toLowerCase();
+        const matchesSearch = !searchVal || 
+            (p.name && p.name.toLowerCase().includes(searchVal)) || 
+            (p.category && p.category.toLowerCase().includes(searchVal)) ||
+            (pBarcode && pBarcode.includes(searchVal));
         return matchesCat && matchesSearch;
     });
 
     if (filtered.length === 0) {
+        listEl.style.gridTemplateColumns = '1fr';
         listEl.innerHTML = `
-            <div style="text-align: center; padding: 30px; color: var(--text-muted);">
-                <i data-lucide="search-x" style="width: 36px; height: 36px; margin-bottom: 8px;"></i>
-                <div>No menu items found.</div>
+            <div style="text-align: center; padding: 40px 20px; color: var(--text-muted); grid-column: 1 / -1;">
+                <div style="font-size: 2.5rem; margin-bottom: 8px;">🔍</div>
+                <div style="font-weight: 700; font-size: 1rem; color: var(--text-color);">No Menu Items Found</div>
+                <div style="font-size: 0.85rem; margin-top: 4px;">Try searching another keyword or tap "All Items"</div>
             </div>
         `;
         if (typeof lucide !== 'undefined') lucide.createIcons();
@@ -11671,21 +11955,55 @@ function renderWaiterMenu() {
         const qty = cartItem ? cartItem.qty : 0;
         const price = parseFloat(p.salePrice || p.price || p.mrp || 0);
 
-        html += `
-            <div class="wm-product-card">
-                <div>
-                    <div style="font-weight: 700; font-size: 0.95rem; color: var(--text-color);">${p.name}</div>
-                    <div style="font-size: 0.82rem; color: var(--primary-color); font-weight: 600;">${currSymbol}${price.toFixed(2)}</div>
+        if (waiterMenuViewMode === 'grid') {
+            const emoji = getCategoryEmoji(p.category, p.name);
+            html += `
+                <div class="wm-product-card-grid ${qty > 0 ? 'has-qty' : ''}">
+                    ${qty > 0 ? `<div class="wm-card-badge">${qty}</div>` : ''}
+                    <div style="width: 100%; height: 50px; border-radius: 12px; background: linear-gradient(135deg, rgba(37,99,235,0.08), rgba(139,92,246,0.08)); display: flex; align-items: center; justify-content: center; margin-bottom: 8px; font-size: 1.6rem; flex-shrink: 0;">
+                        ${emoji}
+                    </div>
+                    <div style="flex: 1; margin-bottom: 8px;">
+                        <div style="font-weight: 800; font-size: 0.92rem; color: var(--text-color); line-height: 1.25; margin-bottom: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 2.3em;" title="${p.name}">
+                            ${p.name}
+                        </div>
+                        <div style="font-size: 0.95rem; font-weight: 900; color: var(--primary-color);">
+                            ${currSymbol}${price.toFixed(2)}
+                        </div>
+                        ${p.category ? `<span style="font-size: 0.68rem; padding: 2px 6px; border-radius: 8px; background: rgba(37,99,235,0.08); color: var(--primary-color); font-weight: 600; display: inline-block; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.3px;">${p.category}</span>` : ''}
+                    </div>
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: auto; padding-top: 4px;">
+                        ${qty > 0 ? `
+                            <button type="button" class="wm-qty-btn" style="flex: 1; height: 34px;" onclick="updateWaiterCartItem('${pId.replace(/'/g, "\\'")}', -1)">-</button>
+                            <span class="wm-qty-count" style="min-width: 20px;">${qty}</span>
+                        ` : ''}
+                        <button type="button" class="wm-qty-btn wm-qty-btn-add" style="flex: 1; height: 34px; width: 100%; border-radius: 10px; font-weight: 800;" onclick="updateWaiterCartItem('${pId.replace(/'/g, "\\'")}', 1)">
+                            ${qty > 0 ? '+' : '+ ADD'}
+                        </button>
+                    </div>
                 </div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    ${qty > 0 ? `
-                        <button type="button" class="wm-qty-btn" onclick="updateWaiterCartItem('${pId}', -1)">-</button>
-                        <span class="wm-qty-count">${qty}</span>
-                    ` : ''}
-                    <button type="button" class="wm-qty-btn" style="background: var(--primary-color); color: white; border-color: var(--primary-color);" onclick="updateWaiterCartItem('${pId}', 1)">+</button>
+            `;
+        } else {
+            // List View
+            html += `
+                <div class="wm-product-card ${qty > 0 ? 'has-qty' : ''}">
+                    <div style="flex: 1; padding-right: 10px;">
+                        <div style="font-weight: 700; font-size: 0.98rem; color: var(--text-color); margin-bottom: 2px;">${p.name}</div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 0.9rem; color: var(--primary-color); font-weight: 800;">${currSymbol}${price.toFixed(2)}</span>
+                            ${p.category ? `<span style="font-size: 0.72rem; padding: 2px 8px; border-radius: 12px; background: rgba(37,99,235,0.08); color: var(--primary-color); font-weight: 600;">${p.category}</span>` : ''}
+                        </div>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        ${qty > 0 ? `
+                            <button type="button" class="wm-qty-btn" onclick="updateWaiterCartItem('${pId.replace(/'/g, "\\'")}', -1)">-</button>
+                            <span class="wm-qty-count">${qty}</span>
+                        ` : ''}
+                        <button type="button" class="wm-qty-btn wm-qty-btn-add" onclick="updateWaiterCartItem('${pId.replace(/'/g, "\\'")}', 1)">+</button>
+                    </div>
                 </div>
-            </div>
-        `;
+            `;
+        }
     });
 
     listEl.innerHTML = html;
@@ -11717,6 +12035,40 @@ function updateWaiterCartItem(pId, change) {
     renderWaiterMenu();
 }
 
+function handleWaiterBarcodeScan(e) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        const barcodeVal = e.target.value.trim().toLowerCase();
+        if (!barcodeVal) return;
+
+        let prods = (typeof products !== 'undefined' && products.length > 0) ? products : (typeof getLegacyOrBranchData === 'function' ? getLegacyOrBranchData('mediflow_products') : []);
+        if (!Array.isArray(prods)) prods = [];
+
+        const matchedProd = prods.find(p => {
+            const b = String(p.barcode || p.sku || p.code || p.id || '').toLowerCase();
+            return b === barcodeVal;
+        });
+
+        if (matchedProd) {
+            const prodIdentifier = matchedProd.id || matchedProd.name;
+            updateWaiterCartItem(prodIdentifier, 1);
+            e.target.value = '';
+            if (typeof showMenuToast === 'function') {
+                showMenuToast(`📦 Added: ${matchedProd.name}`);
+            } else {
+                alert(`📦 Added to Order: ${matchedProd.name}`);
+            }
+        } else {
+            const searchInput = document.getElementById('wm-search-input');
+            if (searchInput) {
+                searchInput.value = barcodeVal;
+                renderWaiterMenu();
+            }
+            alert(`No product found matching barcode "${barcodeVal}"`);
+        }
+    }
+}
+
 function updateWaiterCartUI() {
     let count = 0;
     let total = 0;
@@ -11733,6 +12085,30 @@ function updateWaiterCartUI() {
     if (totalEl) totalEl.textContent = `${currSymbol}${total.toFixed(2)}`;
 }
 
+function updateReviewModalItemQty(pId, change) {
+    updateWaiterCartItem(pId, change);
+    if (waiterCart.length === 0) {
+        closeWaiterReviewModal();
+    } else {
+        openWaiterReviewModal();
+    }
+}
+
+window.updateReviewModalItemQty = updateReviewModalItemQty;
+
+function addCookingNoteSuggestion(text) {
+    const notesInput = document.getElementById('wm-order-notes');
+    if (!notesInput) return;
+    const current = notesInput.value.trim();
+    if (!current) {
+        notesInput.value = text;
+    } else if (!current.includes(text)) {
+        notesInput.value = current + ', ' + text;
+    }
+}
+
+window.addCookingNoteSuggestion = addCookingNoteSuggestion;
+
 function openWaiterReviewModal() {
     if (waiterCart.length === 0) {
         alert('Your order cart is empty! Add items first.');
@@ -11746,21 +12122,47 @@ function openWaiterReviewModal() {
 
     if (!modal) return;
 
-    if (info) info.textContent = `${currentWaiterTable} • Waiter: ${currentWaiterName}`;
+    if (info) {
+        info.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
+                <span style="background: rgba(37,99,235,0.12); color: var(--primary-color); padding: 4px 10px; border-radius: 8px; font-weight: 800; font-size: 0.9rem;">
+                    🍽️ ${currentWaiterTable || 'Table 1'}
+                </span>
+                <span style="background: rgba(139,92,246,0.12); color: #8b5cf6; padding: 4px 10px; border-radius: 8px; font-weight: 700; font-size: 0.85rem;">
+                    👨‍🍳 Waiter: ${currentWaiterName || 'Staff'}
+                </span>
+            </div>
+        `;
+    }
 
     let currSymbol = (typeof settings !== 'undefined' && settings.currency) ? settings.currency : '$';
     let total = 0;
     let html = '';
+
     waiterCart.forEach(item => {
         const itemTotal = item.price * item.qty;
         total += itemTotal;
+        const emoji = getCategoryEmoji('', item.name);
+
         html += `
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px dashed var(--border-color);">
-                <div>
-                    <div style="font-weight: 600;">${item.name}</div>
-                    <div style="font-size: 0.8rem; color: var(--text-muted);">${currSymbol}${item.price.toFixed(2)} x ${item.qty}</div>
+            <div style="background: var(--bg-color); border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; border: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; gap: 10px; box-shadow: var(--shadow-sm);">
+                <div style="display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0;">
+                    <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(37,99,235,0.08); display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0;">
+                        ${emoji}
+                    </div>
+                    <div style="min-width: 0; flex: 1;">
+                        <div style="font-weight: 800; font-size: 0.95rem; color: var(--text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${item.name}</div>
+                        <div style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600; margin-top: 1px;">
+                            ${currSymbol}${item.price.toFixed(2)} × ${item.qty} = <span style="color: var(--primary-color); font-weight: 800;">${currSymbol}${itemTotal.toFixed(2)}</span>
+                        </div>
+                    </div>
                 </div>
-                <div style="font-weight: 700; color: var(--primary-color);">${currSymbol}${itemTotal.toFixed(2)}</div>
+
+                <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+                    <button type="button" class="wm-qty-btn" style="width: 32px; height: 32px; font-size: 1.1rem; border-radius: 8px;" onclick="updateReviewModalItemQty('${item.id.replace(/'/g, "\\'")}', -1)">-</button>
+                    <span style="font-weight: 900; font-size: 0.95rem; min-width: 20px; text-align: center; color: var(--text-color);">${item.qty}</span>
+                    <button type="button" class="wm-qty-btn wm-qty-btn-add" style="width: 32px; height: 32px; font-size: 1.1rem; border-radius: 8px;" onclick="updateReviewModalItemQty('${item.id.replace(/'/g, "\\'")}', 1)">+</button>
+                </div>
             </div>
         `;
     });
@@ -11801,16 +12203,21 @@ async function submitWaiterOrderToCloud() {
         };
     });
 
+    const safeTable = String(currentWaiterTable || '1');
+    const tableStr = safeTable.toLowerCase().startsWith('table') ? safeTable : ('Table ' + safeTable);
+    const orderNotes = document.getElementById('wm-order-notes') ? document.getElementById('wm-order-notes').value.trim() : '';
+
     const orderData = {
         id: orderId,
         invoiceNo: orderId,
         branchId: (typeof currentBranchId !== 'undefined' ? currentBranchId : 'main_branch'),
         waiterName: currentWaiterName,
         tableNumber: currentWaiterTable,
-        customer: { name: 'Table ' + currentWaiterTable, phone: currentWaiterName },
-        customerName: 'Table ' + currentWaiterTable + ' (' + currentWaiterName + ')',
+        customer: { name: tableStr, phone: currentWaiterName },
+        customerName: tableStr + ' (' + currentWaiterName + ')',
         orderType: 'Dine-In',
-        orderRef: 'Table ' + currentWaiterTable,
+        orderRef: tableStr,
+        notes: orderNotes,
         items: itemsPayload,
         totalAmount: totalAmt,
         grandTotal: totalAmt,
@@ -11824,7 +12231,7 @@ async function submitWaiterOrderToCloud() {
     try {
         if (isFirebaseEnabled && db) {
             // Write separate document to waiter_orders collection for concurrency safety
-            await db.collection('waiter_orders').doc(orderId).set(orderData);
+            db.collection('waiter_orders').doc(orderId).set(orderData).catch(err => console.error("Background sync failed:", err));
         } else {
             // Local fallback
             let localOrders = JSON.parse(localStorage.getItem('mediflow_digital_orders')) || [];

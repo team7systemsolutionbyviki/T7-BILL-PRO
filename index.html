@@ -506,11 +506,22 @@
             <section id="products" class="page-section">
                 <div class="card">
                     <div
-                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                        <div class="search-container">
-                            <i data-lucide="search" class="search-icon"></i>
-                            <input type="text" id="product-list-search" class="form-control search-input"
-                                placeholder="Search by name or category...">
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+                        <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                            <div class="search-container">
+                                <i data-lucide="search" class="search-icon"></i>
+                                <input type="text" id="product-list-search" class="form-control search-input"
+                                    placeholder="Search by name or category...">
+                            </div>
+                            <select id="product-list-sort" class="form-control" style="width: auto; min-width: 180px;" onchange="if(typeof renderProducts === 'function') renderProducts()">
+                                <option value="default">Sort: Default (Newest)</option>
+                                <option value="name_asc">Name (A-Z)</option>
+                                <option value="name_desc">Name (Z-A)</option>
+                                <option value="price_asc">Sale Price (Low to High)</option>
+                                <option value="price_desc">Sale Price (High to Low)</option>
+                                <option value="category_asc">Category (A-Z)</option>
+                                <option value="category_desc">Category (Z-A)</option>
+                            </select>
                         </div>
                         <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
                             <button class="btn btn-outline" onclick="downloadSampleCSVTemplate()">
@@ -2180,11 +2191,14 @@
                         </div>
                         <div style="margin-top: 2rem; border-top: 1px solid var(--border-color); padding-top: 1.5rem;">
                             <h4 style="margin-bottom: 1rem; color: var(--primary-color);">Product Categories</h4>
-                            <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                            <div style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
                                 <input type="text" id="new-category-name" class="form-control"
                                     placeholder="Add new category" style="max-width: 300px;">
                                 <button type="button" class="btn btn-secondary" onclick="addCategory()">
                                     <i data-lucide="plus"></i> Add
+                                </button>
+                                <button type="button" class="btn btn-outline" onclick="cleanInvalidCategoriesUser()" style="padding: 6px 14px; font-size: 0.85rem; border-color: var(--primary-color); color: var(--primary-color);">
+                                    <i data-lucide="sparkles"></i> Clean Categories
                                 </button>
                             </div>
                             <div id="category-list" style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
@@ -2513,6 +2527,75 @@
         </main>
 
         <!-- Modals -->
+        <!-- Staff Modal -->
+        <div class="modal-overlay" id="staff-modal" style="display: none;">
+            <div class="modal" style="max-width: 550px; border-radius: 16px;">
+                <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; margin-bottom: 1rem;">
+                    <h3 id="staff-modal-title" style="margin: 0;">Add New Staff Member</h3>
+                    <button type="button" class="btn btn-outline" onclick="closeStaffModal()" style="padding: 0.4rem 0.6rem;">
+                        <i data-lucide="x"></i>
+                    </button>
+                </div>
+                <form id="staff-form" onsubmit="saveStaff(event)">
+                    <input type="hidden" id="edit-staff-id">
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem;">
+                        <div class="form-group" style="grid-column: span 2;">
+                            <label style="font-weight: 600; margin-bottom: 4px; display: block;">Full Name *</label>
+                            <input type="text" id="staff-name" class="form-control" placeholder="Enter staff member's name" required>
+                        </div>
+                        <div class="form-group">
+                            <label style="font-weight: 600; margin-bottom: 4px; display: block;">Phone Number</label>
+                            <input type="tel" id="staff-phone" class="form-control" placeholder="Phone number">
+                        </div>
+                        <div class="form-group">
+                            <label style="font-weight: 600; margin-bottom: 4px; display: block;">Role / Designation *</label>
+                            <select id="staff-role" class="form-control" required>
+                                <option value="Cashier">Cashier</option>
+                                <option value="Pharmacist">Pharmacist</option>
+                                <option value="Sales Assistant">Sales Assistant</option>
+                                <option value="Manager">Manager</option>
+                                <option value="Waiter">Waiter</option>
+                                <option value="Chef / Kitchen">Chef / Kitchen</option>
+                                <option value="Delivery Boy">Delivery Boy</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label style="font-weight: 600; margin-bottom: 4px; display: block;">Salary / Wage Type</label>
+                            <select id="staff-salary-type" class="form-control">
+                                <option value="Monthly">Monthly</option>
+                                <option value="Daily">Daily</option>
+                                <option value="Hourly">Hourly</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label style="font-weight: 600; margin-bottom: 4px; display: block;">Salary Rate (₹)</label>
+                            <input type="number" step="0.01" id="staff-salary-rate" class="form-control" placeholder="0.00">
+                        </div>
+                        <div class="form-group">
+                            <label style="font-weight: 600; margin-bottom: 4px; display: block;">Joining Date</label>
+                            <input type="date" id="staff-joining-date" class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label style="font-weight: 600; margin-bottom: 4px; display: block;">Status</label>
+                            <select id="staff-status" class="form-control">
+                                <option value="Active">Active</option>
+                                <option value="Inactive">Inactive</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="grid-column: span 2;">
+                            <label style="font-weight: 600; margin-bottom: 4px; display: block;">Address</label>
+                            <textarea id="staff-address" class="form-control" rows="2" placeholder="Full address (optional)"></textarea>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 1.5rem;">
+                        <button type="button" class="btn btn-outline" onclick="closeStaffModal()">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save Staff Member</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
         <div class="modal-overlay" id="product-modal">
             <div class="modal">
                 <div class="modal-header">
@@ -3347,116 +3430,220 @@
         </div>
 
         <!-- Dedicated Waiter Mobile View App -->
-        <div id="waiter-mobile-app" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: var(--bg-color); z-index: 99999; overflow-y: auto; font-family: system-ui, -apple-system, sans-serif;">
+        <div id="waiter-mobile-app" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: var(--bg-color); z-index: 99999; overflow-y: auto;">
             <!-- Mobile Top Header -->
-            <header style="background: var(--card-bg); padding: 12px 16px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; box-shadow: var(--shadow-sm);">
+            <header class="wm-app-header">
                 <div style="display: flex; align-items: center; gap: 10px;">
-                    <div style="width: 38px; height: 38px; border-radius: 10px; background: linear-gradient(135deg, var(--primary-color), var(--accent-color)); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; font-weight: bold;">
+                    <div style="width: 40px; height: 40px; border-radius: 12px; background: linear-gradient(135deg, #2563eb, #8b5cf6); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; font-weight: bold; box-shadow: 0 4px 12px rgba(37,99,235,0.4);">
                         📱
                     </div>
                     <div>
-                        <div style="font-weight: 700; font-size: 1rem; color: var(--text-color);">Waiter Mobile POS</div>
-                        <div id="waiter-mobile-branch-badge" style="font-size: 0.75rem; color: var(--text-muted);">Branch: Loading...</div>
+                        <div style="font-weight: 800; font-size: 1.05rem; letter-spacing: -0.01em;">Waiter Mobile POS</div>
+                        <div id="waiter-mobile-branch-badge" style="font-size: 0.75rem; color: #94a3b8; font-weight: 500;">Branch: Loading...</div>
                     </div>
                 </div>
-                <button type="button" class="btn btn-outline" onclick="resetWaiterSession()" style="padding: 6px 12px; font-size: 0.8rem; border-radius: 8px; display: inline-flex; align-items: center; gap: 4px;">
-                    <i data-lucide="refresh-cw" style="width: 14px;"></i> Reset / Switch
+                <button type="button" class="btn" onclick="resetWaiterSession()" style="padding: 6px 12px; font-size: 0.8rem; border-radius: 10px; background: rgba(255,255,255,0.12); color: white; border: 1px solid rgba(255,255,255,0.2); display: inline-flex; align-items: center; gap: 6px; font-weight: 600;">
+                    <i data-lucide="refresh-cw" style="width: 14px;"></i> Switch Table
                 </button>
             </header>
 
-            <div style="max-width: 600px; margin: 0 auto; padding: 16px 16px 100px;">
+            <div style="max-width: 600px; margin: 0 auto; padding: 16px 16px 120px;">
                 <!-- Step 1: Waiter & Table Picker -->
-                <div id="waiter-picker-step" class="card" style="border-radius: 16px; box-shadow: var(--shadow-md); margin-bottom: 16px;">
-                    <h4 style="margin-top: 0; margin-bottom: 1rem; display: flex; align-items: center; gap: 8px; color: var(--primary-color);">
-                        <i data-lucide="user-check"></i> Waiter & Table Details
-                    </h4>
+                <div id="waiter-picker-step" class="card" style="border-radius: 20px; box-shadow: var(--shadow-md); padding: 20px; margin-bottom: 16px; border: 1px solid var(--border-color);">
+                    <div style="text-align: center; margin-bottom: 1.25rem;">
+                        <div style="width: 50px; height: 50px; border-radius: 50%; background: rgba(37,99,235,0.1); color: var(--primary-color); display: flex; align-items: center; justify-content: center; margin: 0 auto 10px; font-size: 1.5rem;">
+                            🍽️
+                        </div>
+                        <h3 style="margin: 0; font-size: 1.25rem; font-weight: 800; color: var(--text-color);">Start New Order Session</h3>
+                        <p style="margin: 4px 0 0; font-size: 0.85rem; color: var(--text-muted);">Tap a Waiter and Table below to begin taking orders.</p>
+                    </div>
                     
-                    <div class="form-group" style="margin-bottom: 1rem;">
-                        <label style="font-weight: 600; font-size: 0.9rem;">Select Waiter Name *</label>
-                        <select id="wm-waiter-select" class="form-control" style="font-size: 1rem; padding: 10px; border-radius: 8px;">
+                    <!-- Waiter Selection -->
+                    <div class="form-group" style="margin-bottom: 1.25rem;">
+                        <label style="font-weight: 700; font-size: 0.9rem; margin-bottom: 8px; display: block; color: var(--text-color);">👨‍🍳 Select Waiter *</label>
+                        <div id="wm-waiter-chips" style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;">
+                            <!-- Waiter Chips rendered dynamically -->
+                        </div>
+                        <select id="wm-waiter-select" class="form-control" style="font-size: 0.95rem; padding: 10px; border-radius: 10px;">
                             <option value="">-- Choose Waiter --</option>
                         </select>
-                        <input type="text" id="wm-waiter-custom" class="form-control" placeholder="Or type waiter name" style="margin-top: 8px; font-size: 0.9rem; display: none;">
+                        <input type="text" id="wm-waiter-custom" class="form-control" placeholder="Or type waiter name..." style="margin-top: 8px; font-size: 0.9rem; display: none; border-radius: 10px;">
                     </div>
 
-                    <div class="form-group" style="margin-bottom: 1.25rem;">
-                        <label style="font-weight: 600; font-size: 0.9rem;">Select Table Number *</label>
-                        <select id="wm-table-select" class="form-control" style="font-size: 1rem; padding: 10px; border-radius: 8px;">
+                    <!-- Table Selection -->
+                    <div class="form-group" style="margin-bottom: 1.5rem;">
+                        <label style="font-weight: 700; font-size: 0.9rem; margin-bottom: 8px; display: block; color: var(--text-color);">🍽️ Select Table *</label>
+                        <div id="wm-table-chips" style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;">
+                            <!-- Table Chips rendered dynamically -->
+                        </div>
+                        <select id="wm-table-select" class="form-control" style="font-size: 0.95rem; padding: 10px; border-radius: 10px;">
                             <option value="">-- Choose Table --</option>
                         </select>
-                        <input type="text" id="wm-table-custom" class="form-control" placeholder="Or type table number (e.g. Table 5)" style="margin-top: 8px; font-size: 0.9rem; display: none;">
+                        <input type="text" id="wm-table-custom" class="form-control" placeholder="Or type table number (e.g. Table 5)..." style="margin-top: 8px; font-size: 0.9rem; display: none; border-radius: 10px;">
                     </div>
 
-                    <button type="button" class="btn btn-primary" onclick="startWaiterOrderSession()" style="width: 100%; padding: 12px; font-size: 1rem; font-weight: 700; border-radius: 10px; justify-content: center; display: flex; align-items: center; gap: 8px;">
-                        Start Order Session <i data-lucide="arrow-right"></i>
+                    <button type="button" class="btn" onclick="startWaiterOrderSession()" style="width: 100%; padding: 14px; font-size: 1.05rem; font-weight: 800; border-radius: 14px; background: linear-gradient(135deg, #2563eb, #1d4ed8); color: white; border: none; box-shadow: 0 4px 16px rgba(37,99,235,0.35); justify-content: center; display: flex; align-items: center; gap: 8px;">
+                        🚀 Start Order Session <i data-lucide="arrow-right"></i>
                     </button>
                 </div>
 
                 <!-- Step 2: Product Menu & Order Builder -->
                 <div id="waiter-menu-step" style="display: none;">
-                    <!-- Session Banner -->
-                    <div style="background: linear-gradient(135deg, rgba(37,99,235,0.08), rgba(139,92,246,0.08)); padding: 10px 14px; border-radius: 12px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border-color);">
+                    <!-- Session Active Banner -->
+                    <div style="background: linear-gradient(135deg, rgba(37,99,235,0.1), rgba(139,92,246,0.1)); padding: 12px 16px; border-radius: 14px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; border: 1px solid rgba(37,99,235,0.2);">
                         <div>
-                            <span style="font-size: 0.78rem; color: var(--text-muted);">Active Table Order:</span>
-                            <div style="font-weight: 700; font-size: 0.95rem; color: var(--primary-color);" id="wm-session-info">Table 1 | Waiter: Staff</div>
+                            <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">ACTIVE SESSION</div>
+                            <div style="font-weight: 800; font-size: 1.05rem; color: var(--primary-color);" id="wm-session-info">Table 1 | Waiter: Staff</div>
                         </div>
-                        <button type="button" class="btn btn-outline" onclick="showWaiterPickerStep()" style="padding: 4px 10px; font-size: 0.78rem;">Change</button>
+                        <button type="button" class="btn btn-outline" onclick="showWaiterPickerStep()" style="padding: 6px 12px; font-size: 0.8rem; border-radius: 10px; font-weight: 600;">Switch</button>
                     </div>
 
-                    <!-- Search & Categories -->
-                    <div style="margin-bottom: 12px;">
-                        <input type="text" id="wm-search-input" class="form-control" placeholder="🔍 Search menu items..." oninput="renderWaiterMenu()" style="border-radius: 10px; padding: 10px 14px; font-size: 0.95rem; width: 100%;">
+                    <!-- Floating Bottom Cart Bar (Moved to Top) -->
+                    <div id="wm-bottom-bar" class="wm-bottom-bar-card" style="display: none; margin-bottom: 14px; background: var(--card-bg); padding: 14px; border-radius: 16px; border: 1px solid var(--border-color); box-shadow: var(--shadow-sm);">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <div style="font-size: 0.78rem; color: var(--text-muted); font-weight: 600;" id="wm-cart-count">0 items selected</div>
+                                <div style="font-size: 1.35rem; font-weight: 900; color: var(--primary-color);" id="wm-cart-total">$0.00</div>
+                            </div>
+                            <button type="button" class="btn" onclick="openWaiterReviewModal()" style="padding: 12px 22px; font-size: 1rem; font-weight: 800; border-radius: 14px; background: linear-gradient(135deg, #2563eb, #1d4ed8); color: white; border: none; box-shadow: 0 4px 16px rgba(37,99,235,0.35); display: flex; align-items: center; gap: 8px;">
+                                <i data-lucide="shopping-bag"></i> Review Order
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Search & Barcode Inputs -->
+                    <div style="display: flex; gap: 8px; margin-bottom: 14px;">
+                        <div style="position: relative; flex: 1;">
+                            <input type="text" id="wm-search-input" class="form-control" placeholder="🔍 Search menu or barcode..." oninput="renderWaiterMenu()" style="border-radius: 12px; padding: 12px 14px; font-size: 0.95rem; width: 100%; box-shadow: var(--shadow-sm);">
+                        </div>
+                        <div style="position: relative; width: 130px; flex-shrink: 0;">
+                            <input type="text" id="wm-barcode-input" class="form-control" placeholder="Barcode..." onkeydown="handleWaiterBarcodeScan(event)" style="border-radius: 12px; padding: 12px 10px 12px 34px; font-size: 0.88rem; width: 100%; font-weight: 600; box-shadow: var(--shadow-sm);">
+                            <i data-lucide="barcode" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 16px; color: var(--primary-color); pointer-events: none;"></i>
+                        </div>
                     </div>
                     
-                    <div id="wm-category-pills" style="display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 14px; scrollbar-width: none;">
-                        <!-- Category pills -->
+                    <!-- Horizontal Category Filter Pills & View Switcher -->
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 14px;">
+                        <div id="wm-category-pills" style="display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; -webkit-overflow-scrolling: touch; flex: 1;">
+                            <!-- Category pills dynamically rendered -->
+                        </div>
+                        <div style="display: flex; gap: 2px; background: var(--card-bg); padding: 3px; border-radius: 12px; border: 1px solid var(--border-color); flex-shrink: 0;">
+                            <button type="button" id="wm-view-grid-btn" onclick="setWaiterMenuViewMode('grid')" style="padding: 6px 10px; border: none; border-radius: 8px; font-size: 0.8rem; font-weight: 700; background: var(--primary-color); color: white; cursor: pointer; transition: all 0.2s;" title="Card Grid View">📱 Grid</button>
+                            <button type="button" id="wm-view-list-btn" onclick="setWaiterMenuViewMode('list')" style="padding: 6px 10px; border: none; border-radius: 8px; font-size: 0.8rem; font-weight: 700; background: transparent; color: var(--text-color); cursor: pointer; transition: all 0.2s;" title="Compact List View">📋 List</button>
+                        </div>
                     </div>
 
                     <!-- Products Grid -->
                     <div id="wm-product-list" style="display: grid; grid-template-columns: 1fr; gap: 10px;">
-                        <!-- Product items -->
+                        <!-- Product items dynamically rendered -->
                     </div>
                 </div>
             </div>
 
-            <!-- Floating Bottom Cart Bar -->
-            <div id="wm-bottom-bar" style="display: none; position: fixed; bottom: 0; left: 0; right: 0; background: var(--card-bg); border-top: 1px solid var(--border-color); padding: 12px 16px; box-shadow: 0 -4px 20px rgba(0,0,0,0.12); z-index: 1000;">
-                <div style="max-width: 600px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center;">
-                    <div>
-                        <div style="font-size: 0.8rem; color: var(--text-muted);" id="wm-cart-count">0 items</div>
-                        <div style="font-size: 1.25rem; font-weight: 800; color: var(--primary-color);" id="wm-cart-total">$0.00</div>
-                    </div>
-                    <button type="button" class="btn btn-primary" onclick="openWaiterReviewModal()" style="padding: 12px 24px; font-size: 1rem; font-weight: 700; border-radius: 12px; box-shadow: 0 4px 12px rgba(37,99,235,0.3); display: flex; align-items: center; gap: 8px;">
-                        <i data-lucide="send"></i> Review Order
-                    </button>
-                </div>
-            </div>
 
             <!-- Order Review Sheet Modal -->
-            <div id="wm-review-modal" class="modal" style="display: none; background: rgba(0,0,0,0.6); align-items: flex-end;">
-                <div class="modal-content" style="width: 100%; max-width: 600px; border-radius: 20px 20px 0 0; padding: 20px; max-height: 85vh; overflow-y: auto; margin: 0 auto;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; margin-bottom: 14px;">
+            <div id="wm-review-modal" class="modal-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 999999; background: rgba(0,0,0,0.65); align-items: flex-end; justify-content: center; backdrop-filter: blur(4px);">
+                <div class="modal-content" style="width: 100%; max-width: 600px; border-radius: 24px 24px 0 0; padding: 22px; max-height: 88vh; overflow-y: auto; box-shadow: 0 -10px 40px rgba(0,0,0,0.3); background: var(--card-bg); position: relative;">
+                    <!-- Handle Pill -->
+                    <div style="width: 40px; height: 4px; border-radius: 2px; background: var(--border-color); margin: 0 auto 14px;"></div>
+                    
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 14px; margin-bottom: 16px;">
                         <div>
-                            <h3 style="margin: 0; font-size: 1.2rem;">Send Order to Kitchen / PC</h3>
-                            <div id="wm-review-table-waiter" style="font-size: 0.85rem; color: var(--text-muted);">Table 1 • Waiter: John</div>
+                            <h3 style="margin: 0; font-size: 1.25rem; font-weight: 800;">📋 Review Order & Send KOT</h3>
+                            <div id="wm-review-table-waiter" style="margin-top: 4px;">Table 1 • Waiter: John</div>
                         </div>
-                        <button type="button" class="btn btn-outline" onclick="closeWaiterReviewModal()" style="border: none; font-size: 1.2rem;">&times;</button>
+                        <button type="button" class="btn btn-outline" onclick="closeWaiterReviewModal()" style="border: none; font-size: 1.3rem; padding: 4px 8px; border-radius: 8px;">&times;</button>
                     </div>
 
                     <!-- Items Breakdown -->
                     <div id="wm-review-items" style="margin-bottom: 16px;">
-                        <!-- Items list -->
+                        <!-- Items list dynamically rendered -->
                     </div>
 
-                    <div style="border-top: 1px solid var(--border-color); padding-top: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-weight: 700; font-size: 1.1rem;">Total Amount:</span>
-                        <span id="wm-review-grand-total" style="font-weight: 800; font-size: 1.3rem; color: var(--primary-color);">$0.00</span>
+                    <!-- Kitchen Notes Input with Quick Chips -->
+                    <div style="margin-bottom: 18px;">
+                        <label style="font-weight: 700; font-size: 0.88rem; display: flex; align-items: center; gap: 6px; margin-bottom: 6px; color: var(--text-color);">
+                            ✏️ Kitchen Cooking Notes (Optional)
+                        </label>
+                        <div style="display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 6px; scrollbar-width: none;">
+                            <button type="button" class="btn btn-outline" onclick="addCookingNoteSuggestion('🌶️ Less Spicy')" style="padding: 4px 10px; font-size: 0.78rem; border-radius: 10px; font-weight: 700;">🌶️ Less Spicy</button>
+                            <button type="button" class="btn btn-outline" onclick="addCookingNoteSuggestion('🔥 Extra Spicy')" style="padding: 4px 10px; font-size: 0.78rem; border-radius: 10px; font-weight: 700;">🔥 Extra Spicy</button>
+                            <button type="button" class="btn btn-outline" onclick="addCookingNoteSuggestion('🧀 Extra Cheese')" style="padding: 4px 10px; font-size: 0.78rem; border-radius: 10px; font-weight: 700;">🧀 Extra Cheese</button>
+                            <button type="button" class="btn btn-outline" onclick="addCookingNoteSuggestion('🧅 No Onion')" style="padding: 4px 10px; font-size: 0.78rem; border-radius: 10px; font-weight: 700;">🧅 No Onion</button>
+                            <button type="button" class="btn btn-outline" onclick="addCookingNoteSuggestion('📦 Parcel')" style="padding: 4px 10px; font-size: 0.78rem; border-radius: 10px; font-weight: 700;">📦 Parcel</button>
+                        </div>
+                        <input type="text" id="wm-order-notes" class="form-control" placeholder="e.g. Less spicy, extra cheese, no onion..." style="border-radius: 12px; font-size: 0.9rem; padding: 12px; box-shadow: var(--shadow-sm);">
+                    </div>
+
+                    <div style="background: linear-gradient(135deg, rgba(37,99,235,0.06), rgba(16,185,129,0.06)); padding: 14px 18px; border-radius: 16px; border: 1.5px solid rgba(37,99,235,0.15); margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-weight: 800; font-size: 1.05rem; color: var(--text-color);">Grand Total:</span>
+                        <span id="wm-review-grand-total" style="font-weight: 900; font-size: 1.5rem; color: var(--primary-color);">$0.00</span>
                     </div>
 
                     <div style="display: flex; gap: 12px;">
-                        <button type="button" class="btn btn-outline" onclick="closeWaiterReviewModal()" style="flex: 1; padding: 12px; border-radius: 10px; font-weight: 600;">Back</button>
-                        <button type="button" class="btn btn-success" onclick="submitWaiterOrderToCloud()" id="wm-submit-order-btn" style="flex: 2; padding: 12px; border-radius: 10px; font-weight: 700; font-size: 1rem; display: flex; justify-content: center; align-items: center; gap: 8px;">
-                            <i data-lucide="send"></i> Send Order
+                        <button type="button" class="btn btn-outline" onclick="closeWaiterReviewModal()" style="flex: 1; padding: 14px; border-radius: 14px; font-weight: 700; font-size: 0.95rem;">Back</button>
+                        <button type="button" class="btn" onclick="submitWaiterOrderToCloud()" id="wm-submit-order-btn" style="flex: 2; padding: 14px; border-radius: 14px; font-weight: 800; font-size: 1rem; background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; box-shadow: 0 4px 16px rgba(16,185,129,0.35); display: flex; justify-content: center; align-items: center; gap: 8px;">
+                            <i data-lucide="send"></i> Send Order to Kitchen
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Return Bill Modal -->
+        <div id="return-bill-modal" class="modal-overlay" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.65); z-index: 999999; align-items: center; justify-content: center; backdrop-filter: blur(4px);">
+            <div class="modal-content" style="background: var(--card-bg); padding: 24px; border-radius: 16px; width: 95%; max-width: 700px; max-height: 90vh; overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,0.2); position: relative;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 15px;">
+                    <h3 style="margin: 0; font-size: 1.4rem; font-weight: 800; color: var(--danger-color); display: flex; align-items: center; gap: 8px;">
+                        <i data-lucide="corner-down-left"></i> Return Bill Processing
+                    </h3>
+                    <button class="btn btn-outline" onclick="closeReturnBillModal()" style="border: none; font-size: 1.5rem; padding: 4px 8px;">&times;</button>
+                </div>
+                
+                <div class="form-group" style="display: flex; gap: 12px; align-items: flex-end; margin-bottom: 20px;">
+                    <div style="flex: 1;">
+                        <label style="font-weight: 700; margin-bottom: 8px; display: block;">Search Original Invoice Number</label>
+                        <input type="text" id="return-bill-id-input" class="form-control" placeholder="Enter Bill / Invoice No" onkeydown="if(event.key==='Enter') lookupReturnBill()" style="border-radius: 10px; font-size: 1.05rem; padding: 12px;">
+                    </div>
+                    <button type="button" class="btn" onclick="lookupReturnBill()" style="padding: 12px 24px; border-radius: 10px; font-weight: 700; background: var(--primary-color); color: white;">
+                        Search
+                    </button>
+                </div>
+
+                <div id="return-bill-details-container" style="display: none;">
+                    <div style="background: rgba(37,99,235,0.05); padding: 16px; border-radius: 12px; margin-bottom: 20px; border: 1px solid rgba(37,99,235,0.15);">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 0.95rem;">
+                            <div><span style="color: var(--text-muted);">Invoice:</span> <strong id="return-bill-inv-no"></strong></div>
+                            <div><span style="color: var(--text-muted);">Date:</span> <strong id="return-bill-date"></strong></div>
+                            <div><span style="color: var(--text-muted);">Customer:</span> <strong id="return-bill-customer"></strong></div>
+                            <div><span style="color: var(--text-muted);">Orig Total:</span> <strong id="return-bill-orig-total"></strong></div>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive" style="max-height: 300px; overflow-y: auto; margin-bottom: 20px; border: 1px solid var(--border-color); border-radius: 12px;">
+                        <table class="table" style="margin: 0; width: 100%;">
+                            <thead style="background: var(--bg-color); position: sticky; top: 0; z-index: 1;">
+                                <tr>
+                                    <th style="padding: 12px;">Item</th>
+                                    <th style="text-align: center; padding: 12px;">Price</th>
+                                    <th style="text-align: center; padding: 12px;">Sold Qty</th>
+                                    <th style="text-align: center; width: 110px; padding: 12px;">Return Qty</th>
+                                    <th style="text-align: right; padding: 12px;">Subtotal</th>
+                                </tr>
+                            </thead>
+                            <tbody id="return-items-tbody">
+                                <!-- Return items injected here -->
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(239,68,68,0.05); padding: 16px 20px; border-radius: 14px; border: 1.5px solid rgba(239,68,68,0.2);">
+                        <div>
+                            <div style="font-size: 0.85rem; color: var(--danger-color); font-weight: 700; text-transform: uppercase;">Total Refund Amount</div>
+                            <div id="return-total-refund-text" style="font-size: 1.8rem; font-weight: 900; color: var(--danger-color);">₹0.00</div>
+                        </div>
+                        <button type="button" class="btn" onclick="confirmProcessReturnBill()" style="padding: 14px 28px; font-size: 1.1rem; font-weight: 800; border-radius: 12px; background: linear-gradient(135deg, #ef4444, #dc2626); color: white; border: none; box-shadow: 0 4px 15px rgba(239,68,68,0.3);">
+                            Process Return
                         </button>
                     </div>
                 </div>
