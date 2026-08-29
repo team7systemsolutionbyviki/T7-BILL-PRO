@@ -12130,13 +12130,21 @@ function renderWaiterMenu() {
 
     const sortVal = document.getElementById('wm-sort-select') ? document.getElementById('wm-sort-select').value : 'default';
     if (sortVal === 'a-z') {
-        filtered.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        filtered.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
     } else if (sortVal === 'z-a') {
-        filtered.sort((a, b) => (b.name || '').localeCompare(a.name || ''));
+        filtered.sort((a, b) => String(b.name || '').localeCompare(String(a.name || '')));
     } else if (sortVal === 'price-asc') {
-        filtered.sort((a, b) => (parseFloat(a.salePrice || a.price || a.mrp || 0)) - (parseFloat(b.salePrice || b.price || b.mrp || 0)));
+        filtered.sort((a, b) => {
+            const pA = parseFloat(a.salePrice || a.price || a.mrp || 0) || 0;
+            const pB = parseFloat(b.salePrice || b.price || b.mrp || 0) || 0;
+            return pA - pB;
+        });
     } else if (sortVal === 'price-desc') {
-        filtered.sort((a, b) => (parseFloat(b.salePrice || b.price || b.mrp || 0)) - (parseFloat(a.salePrice || a.price || a.mrp || 0)));
+        filtered.sort((a, b) => {
+            const pA = parseFloat(a.salePrice || a.price || a.mrp || 0) || 0;
+            const pB = parseFloat(b.salePrice || b.price || b.mrp || 0) || 0;
+            return pB - pA;
+        });
     }
 
     if (filtered.length === 0) {
