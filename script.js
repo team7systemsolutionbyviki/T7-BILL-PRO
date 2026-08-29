@@ -12480,8 +12480,11 @@ async function submitWaiterOrderToCloud() {
 
     try {
         if (isFirebaseEnabled && db) {
-            // Write separate document to waiter_orders collection for concurrency safety
-            await db.collection('waiter_orders').doc(orderId).set(orderData);
+            // Send to Firebase asynchronously in the background so it doesn't block the Waiter UI
+            db.collection('waiter_orders').doc(orderId).set(orderData).catch(err => {
+                console.error("Firebase background sync failed:", err);
+                alert(`🚨 CRITICAL ERROR: Order #${orderId} FAILED to reach the PC/Kitchen!\nReason: ${err.message}\n\nPlease check your internet and re-enter this order.`);
+            });
         } else {
             // Local fallback branch-specific
             const pendingKey = `mediflow_${(typeof currentBranchId !== 'undefined' ? currentBranchId : 'branch_default')}_digital_orders`;
@@ -12490,7 +12493,10 @@ async function submitWaiterOrderToCloud() {
             localStorage.setItem(pendingKey, JSON.stringify(localOrders));
         }
 
-        alert(`✅ Order #${orderId} Sent to Kitchen & PC!\nTable: ${currentWaiterTable}\nWaiter: ${currentWaiterName}`);
+        // Fast, non-blocking notification
+        if (typeof showMenuToast === 'function') {
+            showMenuToast(`✅ Order #${orderId} Sent! (Table: ${currentWaiterTable})`);
+        }
         
         waiterCart = [];
         updateWaiterCartUI();
@@ -12498,7 +12504,7 @@ async function submitWaiterOrderToCloud() {
         renderWaiterMenu();
     } catch (e) {
         console.error("Error submitting waiter order:", e);
-        alert("Failed to send order to cloud: " + (e.message || e));
+        alert("Failed to process order: " + (e.message || e));
     } finally {
         if (btn) {
             btn.disabled = false;
