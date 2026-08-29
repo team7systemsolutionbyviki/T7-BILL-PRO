@@ -7559,11 +7559,12 @@ function deleteDigitalOrder(orderId) {
 
         // Clean from digital_orders list
         let digitalOrders = JSON.parse(localStorage.getItem('mediflow_digital_orders')) || [];
-        digitalOrders = digitalOrders.filter(d => d.id !== orderId && d.id !== order.invoiceNo);
+        digitalOrders = digitalOrders.filter(d => d.id !== orderId && d.invoiceNo !== orderId);
         localStorage.setItem('mediflow_digital_orders', JSON.stringify(digitalOrders));
         syncToCloud('digital_orders', digitalOrders);
 
         if (isFirebaseEnabled && db && (order.isWaiterOrder || String(orderId).startsWith('WORD-'))) {
+            db.collection('waiter_orders').doc(orderId).update({ status: 'Cancelled' }).catch(() => {});
             db.collection('waiter_orders').doc(orderId).delete().catch(() => {});
         }
 
