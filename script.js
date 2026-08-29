@@ -1078,9 +1078,13 @@ function initApp() {
         if (urlParams.get('mode') === 'waiter' || urlParams.get('mode') === 'waiter-order') {
             isWaiterMobileMode = true;
             const targetBranch = urlParams.get('branch');
+            const targetWaiter = urlParams.get('waiter');
             if (targetBranch) {
                 currentBranchId = targetBranch;
                 sessionStorage.setItem('mediflow_current_branch', targetBranch);
+            }
+            if (targetWaiter) {
+                selectedWaiterChipVal = targetWaiter;
             }
             if (typeof loadBranchData === 'function') loadBranchData();
             initWaiterMobileMode();
@@ -11663,6 +11667,13 @@ function setupWaiterOrdersListener() {
                                 sales.unshift(orderRecord);
                             }
                             updated = true;
+                        } else {
+                            // If order is modified to Billed or Cancelled, remove the Pending entry from sales array
+                            let idx = sales.findIndex(s => s.id === docId || s.invoiceNo === docId);
+                            if (idx !== -1) {
+                                sales.splice(idx, 1);
+                                updated = true;
+                            }
                         }
                     } else if (change.type === 'removed') {
                         let idx = sales.findIndex(s => s.id === docId || s.invoiceNo === docId);
@@ -11689,19 +11700,53 @@ function openWaiterLinkModal() {
     const input = document.getElementById('waiter-link-input');
     const qrImg = document.getElementById('waiter-link-qr-img');
     const testBtn = document.getElementById('waiter-link-test-btn');
+    const select = document.getElementById('waiter-link-select');
     if (!modal) return;
 
-    const baseUrl = window.location.origin + window.location.pathname;
-    const waiterUrl = `${baseUrl}?mode=waiter&branch=${encodeURIComponent(currentBranchId || 'main_branch')}`;
+    if (select) {
+        let staffData = (typeof staffList !== 'undefined' && staffList.length > 0) ? staffList : (typeof getLegacyOrBranchData === 'function' ? getLegacyOrBranchData('mediflow_staff') : []);
+        let waiters = Array.isArray(staffData) ? staffData : [];
+        let waiterNames = [];
+        waiters.forEach(s => {
+            const name = typeof s === 'string' ? s : (s.name || s.staffName || s.username);
+            if (name && !waiterNames.includes(name)) waiterNames.push(name);
+        });
+        
+        let html = '<option value="">-- All Waiters (Let them select) --</option>';
+        waiterNames.forEach(name => {
+            html += `<option value="${name.replace(/"/g, '&quot;')}">${name}</option>`;
+        });
+        select.innerHTML = html;
+        select.value = '';
+    }
+
+    updateWaiterLink();
+
+    modal.style.display = 'flex';
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function updateWaiterLink() {
+    const input = document.getElementById('waiter-link-input');
+    const qrImg = document.getElementById('waiter-link-qr-img');
+    const testBtn = document.getElementById('waiter-link-test-btn');
+    const select = document.getElementById('waiter-link-select');
+
+    const configuredPublicUrl = 'https://t7billpro.in/';
+    const host = String(window.location.hostname || '').toLowerCase();
+    const isLocalHost = host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === '::1' || host.endsWith('.local');
+    const baseUrl = (isLocalHost || window.location.protocol === 'file:') ? configuredPublicUrl : window.location.href.split('#')[0].split('?')[0];
+
+    let waiterUrl = `${baseUrl}?mode=waiter&branch=${encodeURIComponent(currentBranchId || 'main_branch')}`;
+    if (select && select.value) {
+        waiterUrl += `&waiter=${encodeURIComponent(select.value)}`;
+    }
 
     if (input) input.value = waiterUrl;
     if (testBtn) testBtn.href = waiterUrl;
     if (qrImg) {
         qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(waiterUrl)}`;
     }
-
-    modal.style.display = 'flex';
-    if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 
 function closeWaiterLinkModal() {

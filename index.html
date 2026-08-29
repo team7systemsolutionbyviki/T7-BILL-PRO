@@ -3407,6 +3407,14 @@
                     Scan QR code on mobile or copy the link to share with waiters for live table ordering.
                 </p>
 
+                <!-- Waiter Selection (Optional) -->
+                <div style="margin-bottom: 1.25rem; text-align: left;">
+                    <label for="waiter-link-select" style="font-size: 0.85rem; color: var(--text-color); font-weight: 600; display: block; margin-bottom: 4px;">Select Waiter (Optional):</label>
+                    <select id="waiter-link-select" class="form-control" onchange="updateWaiterLink()" style="font-size: 0.9rem;">
+                        <option value="">-- All Waiters (Let them select) --</option>
+                    </select>
+                </div>
+
                 <!-- QR Code Display -->
                 <div style="background: white; padding: 16px; border-radius: 12px; display: inline-block; box-shadow: var(--shadow-md); margin-bottom: 1.25rem; border: 1px solid var(--border-color);">
                     <img id="waiter-link-qr-img" src="" alt="Waiter Link QR Code" style="width: 200px; height: 200px; display: block; margin: 0 auto;">
