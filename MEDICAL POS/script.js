@@ -7195,7 +7195,18 @@ function renderDigitalOrders() {
     const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
     const statusVal = statusFilter ? statusFilter.value : 'ALL';
 
-    let digitalOrders = sales.filter(s => s.isDigitalOrder || (s.invoiceNo && s.invoiceNo.startsWith('ORD-')));
+    let salesDigitalOrders = sales.filter(s => s.isDigitalOrder || (s.invoiceNo && s.invoiceNo.startsWith('ORD-')));
+    let offlineOrders = [];
+    try {
+        offlineOrders = JSON.parse(localStorage.getItem('mediflow_digital_orders')) || [];
+    } catch (e) {}
+    
+    // Merge and deduplicate
+    let uniqueMap = new Map();
+    [...salesDigitalOrders, ...offlineOrders].forEach(o => {
+        uniqueMap.set(o.id || o.invoiceNo, o);
+    });
+    let digitalOrders = Array.from(uniqueMap.values());
 
     if (statusVal !== 'ALL') {
         digitalOrders = digitalOrders.filter(s => {
