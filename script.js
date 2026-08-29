@@ -597,7 +597,10 @@ async function syncFromCloud() {
                 if (col === 'products') products = arrayData;
                 else if (col === 'sales') {
                     const pendingDigital = (sales || []).filter(s => (s.isWaiterOrder || s.isDigitalOrder) && (s.status === 'Pending' || s.status === 'pending'));
-                    sales = [...arrayData, ...pendingDigital];
+                    let merged = [...arrayData, ...pendingDigital];
+                    let uniqueMap = new Map();
+                    merged.forEach(s => uniqueMap.set(s.id || s.invoiceNo, s));
+                    sales = Array.from(uniqueMap.values());
                     arrayData = sales; // ensure localStorage also saves the preserved orders
                 }
                 else if (col === 'purchases') purchases = arrayData;
@@ -726,7 +729,10 @@ function setupCloudListener() {
                             if (colKey === 'products') products = arrayData;
                             else if (colKey === 'sales') {
                                 const pendingDigital = (sales || []).filter(s => (s.isWaiterOrder || s.isDigitalOrder) && (s.status === 'Pending' || s.status === 'pending'));
-                                sales = [...arrayData, ...pendingDigital];
+                                let merged = [...arrayData, ...pendingDigital];
+                                let uniqueMap = new Map();
+                                merged.forEach(s => uniqueMap.set(s.id || s.invoiceNo, s));
+                                sales = Array.from(uniqueMap.values());
                                 arrayData = sales; // ensure localStorage also saves the preserved orders
                             }
                             else if (colKey === 'purchases') purchases = arrayData;
@@ -7466,7 +7472,7 @@ function loadDigitalOrderToBilling(orderId) {
 
     // Clear order from sales list if found there
     if (orderIndex !== -1) {
-        sales.splice(orderIndex, 1);
+        sales = sales.filter(s => s.id !== orderId && s.invoiceNo !== orderId);
         localStorage.setItem('mediflow_sales', JSON.stringify(sales));
         if (typeof syncToCloud === 'function') syncToCloud('sales', { data: sales });
     }
@@ -7532,7 +7538,7 @@ function deleteDigitalOrder(orderId) {
         if (typeof syncToCloud === 'function') syncToCloud('cancelled_digital_orders', { data: cancelledDigitalOrders });
 
         if (isSale) {
-            sales.splice(index, 1);
+            sales = sales.filter(s => s.id !== orderId && s.invoiceNo !== orderId);
             localStorage.setItem('mediflow_sales', JSON.stringify(sales));
             syncToCloud('sales', { data: sales });
         }
@@ -11723,16 +11729,16 @@ function setupWaiterOrdersListener() {
                             updated = true;
                         } else {
                             // If order is modified to Billed or Cancelled, remove the Pending entry from sales array
-                            let idx = sales.findIndex(s => s.id === docId || s.invoiceNo === docId);
-                            if (idx !== -1) {
-                                sales.splice(idx, 1);
+                            const prevLength = sales.length;
+                            sales = sales.filter(s => s.id !== docId && s.invoiceNo !== docId);
+                            if (sales.length !== prevLength) {
                                 updated = true;
                             }
                         }
                     } else if (change.type === 'removed') {
-                        let idx = sales.findIndex(s => s.id === docId || s.invoiceNo === docId);
-                        if (idx !== -1) {
-                            sales.splice(idx, 1);
+                        const prevLength = sales.length;
+                        sales = sales.filter(s => s.id !== docId && s.invoiceNo !== docId);
+                        if (sales.length !== prevLength) {
                             updated = true;
                         }
                     }
