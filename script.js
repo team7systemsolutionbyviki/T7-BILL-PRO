@@ -313,6 +313,7 @@ async function auditSecurityAction(action, details = {}) {
 
 function validateCurrentBranchAccess() {
     const branchId = sessionStorage.getItem('mediflow_current_branch') || currentBranchId || 'branch_default';
+    if (typeof isWaiterMobileMode !== 'undefined' && isWaiterMobileMode) return branchId;
     if (!branches.some(b => b.id === branchId)) {
         const fallback = branches[0]?.id || 'branch_default';
         currentBranchId = fallback;
