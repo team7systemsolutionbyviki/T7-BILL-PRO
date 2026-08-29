@@ -6328,6 +6328,47 @@ window.addEventListener('storage', (e) => {
             checkLoginStatus();
         }
     }
+    
+    if (e.key === 'mediflow_digital_orders') {
+        const updatedOrders = JSON.parse(e.newValue || '[]');
+        let newWaiterOrderFound = false;
+        
+        updatedOrders.forEach(data => {
+            if (data.isWaiterOrder && (data.status === 'Pending' || data.status === 'pending')) {
+                let idx = sales.findIndex(s => s.id === data.id || s.invoiceNo === data.id);
+                if (idx === -1) {
+                    const orderRecord = {
+                        id: data.id,
+                        invoiceNo: data.id,
+                        date: data.createdAt || data.date || new Date().toISOString(),
+                        customer: data.customer || { name: 'Table ' + (data.tableNumber || '?'), phone: data.waiterName || '' },
+                        orderType: 'Dine-In',
+                        orderRef: data.orderRef || ('Table ' + (data.tableNumber || '?')),
+                        items: data.items || [],
+                        grandTotal: parseFloat(data.totalAmount || data.grandTotal) || 0,
+                        status: 'Pending',
+                        isDigitalOrder: true,
+                        isWaiterOrder: true,
+                        waiterName: data.waiterName || '',
+                        tableNumber: data.tableNumber || '',
+                        branchId: data.branchId || ''
+                    };
+                    sales.unshift(orderRecord);
+                    newWaiterOrderFound = true;
+                    if (typeof showMenuToast === 'function') showMenuToast(`🔔 New Waiter Order from ${orderRecord.customer.name}!`);
+                    if (typeof playBeep === 'function') playBeep();
+                }
+            }
+        });
+        
+        if (newWaiterOrderFound) {
+            localStorage.setItem('mediflow_sales', JSON.stringify(sales));
+            if (typeof renderSales === 'function') renderSales();
+            if (typeof updateDashboard === 'function') updateDashboard();
+        }
+        
+        if (typeof renderDigitalOrders === 'function') renderDigitalOrders();
+    }
 });
 
 // --- Digital Menu Card Module ---
@@ -12102,7 +12143,9 @@ function getCategoryEmoji(catName = '', prodName = '') {
 
 function renderWaiterMenu() {
     const listEl = document.getElementById('wm-product-list');
-    const searchVal = document.getElementById('wm-search-input') ? document.getElementById('wm-search-input').value.toLowerCase().trim() : '';
+    const searchInputVal = document.getElementById('wm-search-input') ? document.getElementById('wm-search-input').value.toLowerCase().trim() : '';
+    const barcodeInputVal = document.getElementById('wm-barcode-input') ? document.getElementById('wm-barcode-input').value.toLowerCase().trim() : '';
+    const searchVal = searchInputVal || barcodeInputVal;
     if (!listEl) return;
 
     if (waiterMenuViewMode === 'grid') {
@@ -12164,7 +12207,7 @@ function renderWaiterMenu() {
     let html = '';
     filtered.forEach(p => {
         const pId = p.id || p.name;
-        const cartItem = waiterCart.find(ci => ci.id === pId);
+        const cartItem = waiterCart.find(ci => String(ci.id) === String(pId));
         const qty = cartItem ? cartItem.qty : 0;
         const price = parseFloat(p.salePrice || p.price || p.mrp || 0);
 
@@ -12224,10 +12267,11 @@ function renderWaiterMenu() {
 }
 
 function updateWaiterCartItem(pId, change) {
+    pId = String(pId);
     let prods = (typeof products !== 'undefined' && products.length > 0) ? products : (typeof getLegacyOrBranchData === 'function' ? getLegacyOrBranchData('mediflow_products') : []);
-    const prod = prods.find(p => p.id === pId || p.name === pId);
+    const prod = prods.find(p => String(p.id) === pId || String(p.name) === pId);
     
-    let cartIndex = waiterCart.findIndex(item => item.id === pId);
+    let cartIndex = waiterCart.findIndex(item => String(item.id) === pId);
 
     if (cartIndex > -1) {
         waiterCart[cartIndex].qty += change;
@@ -12237,7 +12281,7 @@ function updateWaiterCartItem(pId, change) {
     } else if (change > 0 && prod) {
         const itemPrice = parseFloat(prod.salePrice || prod.price || prod.mrp || 0);
         waiterCart.push({
-            id: prod.id || ('P_' + Date.now()),
+            id: String(prod.id || ('P_' + Date.now())),
             name: prod.name,
             price: itemPrice,
             qty: 1
