@@ -7319,14 +7319,17 @@ function loadDigitalOrderToBilling(orderId) {
     let orderIndex = sales.findIndex(s => s.id === orderId || s.invoiceNo === orderId);
     let order = orderIndex !== -1 ? sales[orderIndex] : null;
 
-    if (!order && typeof digitalOrders !== 'undefined' && Array.isArray(digitalOrders)) {
-        let digiIndex = digitalOrders.findIndex(s => s.id === orderId || s.invoiceNo === orderId);
-        if (digiIndex !== -1) {
-            order = digitalOrders[digiIndex];
-            digitalOrders.splice(digiIndex, 1);
-            localStorage.setItem('mediflow_digital_orders', JSON.stringify(digitalOrders));
-            if (typeof syncToCloud === 'function') syncToCloud('digital_orders', { data: digitalOrders });
-        }
+    let localDigitalOrders = JSON.parse(localStorage.getItem('mediflow_digital_orders')) || [];
+    let digiIndex = localDigitalOrders.findIndex(s => s.id === orderId || s.invoiceNo === orderId);
+    
+    if (!order && digiIndex !== -1) {
+        order = localDigitalOrders[digiIndex];
+    }
+    
+    if (digiIndex !== -1) {
+        localDigitalOrders.splice(digiIndex, 1);
+        localStorage.setItem('mediflow_digital_orders', JSON.stringify(localDigitalOrders));
+        if (typeof syncToCloud === 'function') syncToCloud('digital_orders', { data: localDigitalOrders });
     }
 
     if (!order) {
@@ -7432,10 +7435,21 @@ function loadDigitalOrderToBilling(orderId) {
 
 function deleteDigitalOrder(orderId) {
     if (!confirm('Are you sure you want to cancel/delete this digital order? Stock will be restored.')) return;
+    
+    let order = null;
+    let isSale = false;
+    
     const index = sales.findIndex(s => s.id === orderId || s.invoiceNo === orderId);
     if (index > -1) {
-        const order = sales[index];
-
+        order = sales[index];
+        isSale = true;
+    } else {
+        let localDigiOrders = JSON.parse(localStorage.getItem('mediflow_digital_orders')) || [];
+        const dIndex = localDigiOrders.findIndex(s => s.id === orderId || s.invoiceNo === orderId);
+        if (dIndex > -1) order = localDigiOrders[dIndex];
+    }
+    
+    if (order) {
         // Restore stock for cancelled order
         if (order.items && Array.isArray(order.items)) {
             order.items.forEach(item => {
@@ -7474,14 +7488,18 @@ function deleteDigitalOrder(orderId) {
         localStorage.setItem('mediflow_cancelled_digital_orders', JSON.stringify(cancelledDigitalOrders));
         if (typeof syncToCloud === 'function') syncToCloud('cancelled_digital_orders', { data: cancelledDigitalOrders });
 
-        sales.splice(index, 1);
-        localStorage.setItem('mediflow_sales', JSON.stringify(sales));
-        syncToCloud('sales', { data: sales });
+        if (isSale) {
+            sales.splice(index, 1);
+            localStorage.setItem('mediflow_sales', JSON.stringify(sales));
+            syncToCloud('sales', { data: sales });
+        }
 
         renderDigitalOrders();
         if (typeof activeSection !== 'undefined' && activeSection === 'products') renderProducts();
         if (typeof activeSection !== 'undefined' && activeSection === 'sales') renderSalesHistory();
         showMenuToast('Digital order cancelled & stock restored successfully.');
+    } else {
+        alert('Order not found!');
     }
 }
 
