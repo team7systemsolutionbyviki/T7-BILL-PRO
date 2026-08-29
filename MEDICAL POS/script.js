@@ -4693,19 +4693,25 @@ function isNearExpiry(dateStr) {
 }
 
 function playBeep() {
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const oscillator = audioContext.createOscillator();
-    const gainNode = audioContext.createGain();
+    try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        const audioContext = new AudioCtx();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
 
-    oscillator.connect(gainNode);
-    gainNode.connect(audioContext.destination);
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
 
-    oscillator.type = 'sine';
-    oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
-    gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
-    
-    oscillator.start();
-    oscillator.stop(audioContext.currentTime + 0.1);
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+        gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+        
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 0.1);
+    } catch (e) {
+        console.error("playBeep error:", e);
+    }
 }
 
 // --- Backup & Restore ---
@@ -6655,19 +6661,26 @@ function addMenuProductToBill(productId) {
 }
 
 function showMenuToast(msg) {
-    let toast = document.getElementById('menu-toast');
-    if (toast) toast.remove();
-
-    toast = document.createElement('div');
-    toast.id = 'menu-toast';
-    toast.className = 'menu-toast';
-    toast.innerHTML = `<i data-lucide="check-circle" style="color: #10b981; width: 18px;"></i> ${msg}`;
-    document.body.appendChild(toast);
-    lucide.createIcons();
-
-    setTimeout(() => {
+    try {
+        let toast = document.getElementById('menu-toast');
         if (toast) toast.remove();
-    }, 2500);
+
+        toast = document.createElement('div');
+        toast.id = 'menu-toast';
+        toast.className = 'menu-toast';
+        toast.innerHTML = `<i data-lucide="check-circle" style="color: #10b981; width: 18px;"></i> ${msg}`;
+        document.body.appendChild(toast);
+        
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons();
+        }
+
+        setTimeout(() => {
+            if (toast) toast.remove();
+        }, 2500);
+    } catch (e) {
+        console.error("showMenuToast error:", e);
+    }
 }
 
 // --- Digital Menu Ordering System ---
