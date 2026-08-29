@@ -527,6 +527,10 @@ async function syncFromCloud() {
     if (!isFirebaseEnabled || !db) return;
     try {
         isSyncingFromCloud = true;
+        
+        const lastSyncedBranch = localStorage.getItem('mediflow_last_synced_branch');
+        const isBranchChange = lastSyncedBranch && lastSyncedBranch !== currentBranchId;
+
         const collections = ['products', 'sales', 'settings', 'purchases', 'expenses', 'categories', 'expense_categories', 'customers', 'suppliers', 'admins', 'supplier_payments', 'customer_payments', 'branches', 'staff', 'attendance', 'staff_advances', 'salary_payments', 'digital_orders', 'doctors', 'held_carts', 'amc', 'tables', 'branch_settings_permissions', 'cash_transactions', 'cash_openings'];
         
         let hasUpdates = false;
@@ -582,7 +586,9 @@ async function syncFromCloud() {
                     existingLocal = JSON.parse(localStorage.getItem(localKey)) || [];
                 } catch (e) {}
 
-                if (Array.isArray(existingLocal) && existingLocal.length > arrayData.length) {
+                const isWaiterModeActive = typeof isWaiterMobileMode !== 'undefined' && isWaiterMobileMode;
+
+                if (!isWaiterModeActive && !isBranchChange && Array.isArray(existingLocal) && existingLocal.length > arrayData.length) {
                     // Local has more items than cloud. Likely an offline/failed sync.
                     // Do not overwrite local data with older cloud data to prevent data loss.
                     continue;
@@ -626,6 +632,7 @@ async function syncFromCloud() {
             console.log("Parallel Cloud sync complete: App re-initialized with remote data.");
             initApp();
         }
+        localStorage.setItem('mediflow_last_synced_branch', currentBranchId);
     } catch (e) {
         console.error('Error syncing from cloud:', e);
     } finally {
@@ -704,7 +711,9 @@ function setupCloudListener() {
                                 existingLocal = JSON.parse(localStorage.getItem(localKey)) || [];
                             } catch (e) {}
 
-                            if (Array.isArray(existingLocal) && existingLocal.length > arrayData.length) {
+                            const isWaiterModeActive = typeof isWaiterMobileMode !== 'undefined' && isWaiterMobileMode;
+
+                            if (!isWaiterModeActive && Array.isArray(existingLocal) && existingLocal.length > arrayData.length) {
                                 // Local has more items than cloud. Likely an offline/failed sync.
                                 // Do not overwrite local data with older cloud data to prevent data loss.
                                 return;
@@ -11653,6 +11662,7 @@ window.submitWaiterOrderToCloud = submitWaiterOrderToCloud;
 function setupWaiterOrdersListener() {
     if (!isFirebaseEnabled || !db) return;
     try {
+        let isInitialWaiterLoad = true;
         if (unsubscribeWaiterOrdersListener) unsubscribeWaiterOrdersListener();
         unsubscribeWaiterOrdersListener = db.collection('waiter_orders')
             .where('branchId', '==', currentBranchId)
@@ -11684,6 +11694,10 @@ function setupWaiterOrdersListener() {
                                 sales[idx] = orderRecord;
                             } else {
                                 sales.unshift(orderRecord);
+                                if (!isInitialWaiterLoad) {
+                                    if (typeof playBeep === 'function') playBeep();
+                                    if (typeof showMenuToast === 'function') showMenuToast(`🔔 New Waiter Order from ${orderRecord.customer.name}!`);
+                                }
                             }
                             updated = true;
                         } else {
@@ -11706,6 +11720,7 @@ function setupWaiterOrdersListener() {
                     localStorage.setItem('mediflow_sales', JSON.stringify(sales));
                     if (typeof renderDigitalOrders === 'function') renderDigitalOrders();
                 }
+                isInitialWaiterLoad = false;
             }, err => {
                 console.error("Waiter orders listener error:", err);
             });
