@@ -3378,6 +3378,9 @@ function removeFromCart(index) {
 function clearCart() {
     if (confirm('Clear all items from cart?')) {
         cart = [];
+        if (typeof loadedDigitalOrderId !== 'undefined') {
+            loadedDigitalOrderId = null;
+        }
         if (document.getElementById('customer-name')) document.getElementById('customer-name').value = '';
         if (document.getElementById('customer-phone')) document.getElementById('customer-phone').value = '';
         renderCart();
@@ -3496,10 +3499,17 @@ function setPayMode(mode, btn) {
     btn.classList.add('active');
 }
 
-function processSale(shouldPrint, shouldWhatsApp = false) {
+async function processSale(shouldPrint, shouldWhatsApp = false) {
     if (cart.length === 0) {
         alert('Cart is empty!');
         return;
+    }
+
+    if (typeof loadedDigitalOrderId !== 'undefined' && loadedDigitalOrderId) {
+        if (sales.some(s => s.digitalOrderId === loadedDigitalOrderId)) {
+            alert("This waiter order has already been billed and checked out.");
+            return;
+        }
     }
 
     const invoiceNo = document.getElementById('invoice-number').value;
@@ -3541,6 +3551,8 @@ function processSale(shouldPrint, shouldWhatsApp = false) {
     const saleData = {
         id: 'S' + Date.now(),
         invoiceNo: finalInvoiceNo,
+        digitalOrderId: (typeof loadedDigitalOrderId !== 'undefined' ? loadedDigitalOrderId : null),
+        isDigitalOrder: (typeof loadedDigitalOrderId !== 'undefined' && loadedDigitalOrderId) ? true : false,
         customer,
         items: cart.map(item => ({...item, qty: isReturnMode ? -item.qty : item.qty})),
         subtotal: finalSubtotal,
@@ -3598,6 +3610,23 @@ function processSale(shouldPrint, shouldWhatsApp = false) {
         sendWhatsAppBill(saleData.id);
     } else {
         alert('Sale saved successfully!');
+    }
+
+    // Cleanup pending Waiter order if applicable
+    if (typeof loadedDigitalOrderId !== 'undefined' && loadedDigitalOrderId) {
+        let digitalOrders = JSON.parse(localStorage.getItem(getPendingOrdersKey())) || [];
+        digitalOrders = digitalOrders.filter(d => d.id !== loadedDigitalOrderId && d.invoiceNo !== loadedDigitalOrderId);
+        localStorage.setItem(getPendingOrdersKey(), JSON.stringify(digitalOrders));
+        if (typeof syncToCloud === 'function') syncToCloud('digital_orders', digitalOrders);
+
+        if (typeof isFirebaseEnabled !== 'undefined' && isFirebaseEnabled && db) {
+            try {
+                await db.collection('waiter_orders').doc(loadedDigitalOrderId).update({ status: 'Billed' });
+            } catch (err) {
+                console.error("Firebase update failed:", err);
+            }
+        }
+        loadedDigitalOrderId = null; // Clear global state
     }
 
     // Reset
@@ -6329,44 +6358,7 @@ window.addEventListener('storage', (e) => {
         }
     }
     
-    if (e.key === 'mediflow_digital_orders') {
-        const updatedOrders = JSON.parse(e.newValue || '[]');
-        let newWaiterOrderFound = false;
-        
-        updatedOrders.forEach(data => {
-            if (data.isWaiterOrder && (data.status === 'Pending' || data.status === 'pending')) {
-                let idx = sales.findIndex(s => s.id === data.id || s.invoiceNo === data.id);
-                if (idx === -1) {
-                    const orderRecord = {
-                        id: data.id,
-                        invoiceNo: data.id,
-                        date: data.createdAt || data.date || new Date().toISOString(),
-                        customer: data.customer || { name: 'Table ' + (data.tableNumber || '?'), phone: data.waiterName || '' },
-                        orderType: 'Dine-In',
-                        orderRef: data.orderRef || ('Table ' + (data.tableNumber || '?')),
-                        items: data.items || [],
-                        grandTotal: parseFloat(data.totalAmount || data.grandTotal) || 0,
-                        status: 'Pending',
-                        isDigitalOrder: true,
-                        isWaiterOrder: true,
-                        waiterName: data.waiterName || '',
-                        tableNumber: data.tableNumber || '',
-                        branchId: data.branchId || ''
-                    };
-                    sales.unshift(orderRecord);
-                    newWaiterOrderFound = true;
-                    if (typeof showMenuToast === 'function') showMenuToast(`🔔 New Waiter Order from ${orderRecord.customer.name}!`);
-                    if (typeof playBeep === 'function') playBeep();
-                }
-            }
-        });
-        
-        if (newWaiterOrderFound) {
-            localStorage.setItem('mediflow_sales', JSON.stringify(sales));
-            if (typeof renderSales === 'function') renderSales();
-            if (typeof updateDashboard === 'function') updateDashboard();
-        }
-        
+    if (e.key === getPendingOrdersKey() || e.key === 'mediflow_digital_orders') {
         if (typeof renderDigitalOrders === 'function') renderDigitalOrders();
     }
 });
@@ -7280,6 +7272,13 @@ window.handleCakePhotoUpload = handleCakePhotoUpload;
 window.clearCakePhotoPreview = clearCakePhotoPreview;
 
 // --- Digital Menu Orders Module ---
+let loadedDigitalOrderId = null;
+
+function getPendingOrdersKey() {
+    const branch = (typeof currentBranchId !== 'undefined' && currentBranchId) ? currentBranchId : (sessionStorage.getItem('mediflow_current_branch') || 'branch_default');
+    return `mediflow_${branch}_digital_orders`;
+}
+
 function renderDigitalOrders() {
     const tbody = document.getElementById('digital-orders-table-body');
     const searchInput = document.getElementById('digital-orders-search');
@@ -7289,18 +7288,12 @@ function renderDigitalOrders() {
     const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
     const statusVal = statusFilter ? statusFilter.value : 'ALL';
 
-    let salesDigitalOrders = sales.filter(s => s.isDigitalOrder || (s.invoiceNo && s.invoiceNo.startsWith('ORD-')));
-    let offlineOrders = [];
+    let digitalOrders = [];
     try {
-        offlineOrders = JSON.parse(localStorage.getItem('mediflow_digital_orders')) || [];
-    } catch (e) {}
-    
-    // Merge and deduplicate
-    let uniqueMap = new Map();
-    [...salesDigitalOrders, ...offlineOrders].forEach(o => {
-        uniqueMap.set(o.id || o.invoiceNo, o);
-    });
-    let digitalOrders = Array.from(uniqueMap.values());
+        digitalOrders = JSON.parse(localStorage.getItem(getPendingOrdersKey())) || [];
+    } catch (e) {
+        console.error("Error reading pending orders:", e);
+    }
 
     if (statusVal !== 'ALL') {
         digitalOrders = digitalOrders.filter(s => {
@@ -7405,31 +7398,26 @@ function renderDigitalOrders() {
     lucide.createIcons();
 }
 
-function loadDigitalOrderToBilling(orderId) {
-    let orderIndex = sales.findIndex(s => s.id === orderId || s.invoiceNo === orderId);
-    let order = orderIndex !== -1 ? sales[orderIndex] : null;
-
-    let localDigitalOrders = JSON.parse(localStorage.getItem('mediflow_digital_orders')) || [];
-    let digiIndex = localDigitalOrders.findIndex(s => s.id === orderId || s.invoiceNo === orderId);
+async function loadDigitalOrderToBilling(orderId) {
+    let localDigitalOrders = JSON.parse(localStorage.getItem(getPendingOrdersKey())) || [];
+    let orderIndex = localDigitalOrders.findIndex(s => s.id === orderId || s.invoiceNo === orderId);
+    let order = orderIndex !== -1 ? localDigitalOrders[orderIndex] : null;
     
-    if (!order && digiIndex !== -1) {
-        order = localDigitalOrders[digiIndex];
-    }
-    
-    if (digiIndex !== -1) {
-        localDigitalOrders.splice(digiIndex, 1);
-        localStorage.setItem('mediflow_digital_orders', JSON.stringify(localDigitalOrders));
-        if (typeof syncToCloud === 'function') syncToCloud('digital_orders', { data: localDigitalOrders });
+    if (!order) {
+        // Fallback: check legacy non-branch specific key just in case
+        let legacyOrders = JSON.parse(localStorage.getItem('mediflow_digital_orders')) || [];
+        let legacyIndex = legacyOrders.findIndex(s => s.id === orderId || s.invoiceNo === orderId);
+        if (legacyIndex !== -1) order = legacyOrders[legacyIndex];
     }
 
     if (!order) {
-        alert('Order not found!');
+        alert('Order not found in pending orders!');
         return;
     }
 
-    if (isFirebaseEnabled && db && (order.isWaiterOrder || String(orderId).startsWith('WORD-'))) {
-        db.collection('waiter_orders').doc(orderId).update({ status: 'Billed' }).catch(() => {});
-    }
+    // DO NOT remove from digital orders or update Firebase to Billed yet!
+    // Store it in the global state so processSale() knows this checkout is tied to a Waiter Order.
+    loadedDigitalOrderId = order.id || order.invoiceNo;
 
     if (cart.length > 0) {
         if (!confirm('Active billing cart contains items! Replace current cart with this order?')) {
@@ -7511,32 +7499,27 @@ function loadDigitalOrderToBilling(orderId) {
         }
     }
 
-    // Clear order from sales list if found there
-    if (orderIndex !== -1) {
-        sales = sales.filter(s => s.id !== orderId && s.invoiceNo !== orderId);
-        localStorage.setItem('mediflow_sales', JSON.stringify(sales));
-        if (typeof syncToCloud === 'function') syncToCloud('sales', { data: sales });
-    }
+    // We no longer remove from sales here, wait until successful payment checkout.
 
     switchSection('billing');
     if (typeof renderCart === 'function') renderCart();
     if (typeof showMenuToast === 'function') showMenuToast(`Order #${order.invoiceNo || order.id} loaded into Billing Terminal!`);
 }
 
-function deleteDigitalOrder(orderId) {
+async function deleteDigitalOrder(orderId) {
     if (!confirm('Are you sure you want to cancel/delete this digital order? Stock will be restored.')) return;
     
     let order = null;
-    let isSale = false;
+    let localDigiOrders = JSON.parse(localStorage.getItem(getPendingOrdersKey())) || [];
+    const dIndex = localDigiOrders.findIndex(s => s.id === orderId || s.invoiceNo === orderId);
     
-    const index = sales.findIndex(s => s.id === orderId || s.invoiceNo === orderId);
-    if (index > -1) {
-        order = sales[index];
-        isSale = true;
+    if (dIndex > -1) {
+        order = localDigiOrders[dIndex];
     } else {
-        let localDigiOrders = JSON.parse(localStorage.getItem('mediflow_digital_orders')) || [];
-        const dIndex = localDigiOrders.findIndex(s => s.id === orderId || s.invoiceNo === orderId);
-        if (dIndex > -1) order = localDigiOrders[dIndex];
+        // Legacy fallback check
+        let legacyOrders = JSON.parse(localStorage.getItem('mediflow_digital_orders')) || [];
+        const legacyIndex = legacyOrders.findIndex(s => s.id === orderId || s.invoiceNo === orderId);
+        if (legacyIndex > -1) order = legacyOrders[legacyIndex];
     }
     
     if (order) {
@@ -7558,14 +7541,20 @@ function deleteDigitalOrder(orderId) {
         }
 
         // Clean from digital_orders list
-        let digitalOrders = JSON.parse(localStorage.getItem('mediflow_digital_orders')) || [];
+        let digitalOrders = JSON.parse(localStorage.getItem(getPendingOrdersKey())) || [];
         digitalOrders = digitalOrders.filter(d => d.id !== orderId && d.invoiceNo !== orderId);
-        localStorage.setItem('mediflow_digital_orders', JSON.stringify(digitalOrders));
+        localStorage.setItem(getPendingOrdersKey(), JSON.stringify(digitalOrders));
         syncToCloud('digital_orders', digitalOrders);
 
         if (isFirebaseEnabled && db && (order.isWaiterOrder || String(orderId).startsWith('WORD-'))) {
-            db.collection('waiter_orders').doc(orderId).update({ status: 'Cancelled' }).catch(() => {});
-            db.collection('waiter_orders').doc(orderId).delete().catch(() => {});
+            try {
+                await db.collection('waiter_orders').doc(orderId).update({ status: 'Cancelled' });
+                await db.collection('waiter_orders').doc(orderId).delete();
+            } catch (err) {
+                console.error("Firebase delete failed:", err);
+                alert("Cloud Sync Error: Could not delete order from cloud database. " + err.message);
+                return;
+            }
         }
 
         // Save to cancelled digital orders audit log
@@ -11736,13 +11725,16 @@ function setupWaiterOrdersListener() {
         unsubscribeWaiterOrdersListener = db.collection('waiter_orders')
             .where('branchId', '==', currentBranchId)
             .onSnapshot(snapshot => {
+                let pendingKey = getPendingOrdersKey();
+                let digitalOrders = JSON.parse(localStorage.getItem(pendingKey)) || [];
                 let updated = false;
+
                 snapshot.docChanges().forEach(change => {
                     const data = change.doc.data();
                     const docId = change.doc.id;
                     if (change.type === 'added' || change.type === 'modified') {
                         if (data && (data.status === 'Pending' || data.status === 'pending')) {
-                            let idx = sales.findIndex(s => s.id === docId || s.invoiceNo === docId);
+                            let idx = digitalOrders.findIndex(s => s.id === docId || s.invoiceNo === docId);
                             const orderRecord = {
                                 id: docId,
                                 invoiceNo: docId,
@@ -11760,9 +11752,9 @@ function setupWaiterOrdersListener() {
                                 branchId: data.branchId
                             };
                             if (idx !== -1) {
-                                sales[idx] = orderRecord;
+                                digitalOrders[idx] = orderRecord;
                             } else {
-                                sales.unshift(orderRecord);
+                                digitalOrders.unshift(orderRecord);
                                 if (!isInitialWaiterLoad) {
                                     if (typeof playBeep === 'function') playBeep();
                                     if (typeof showMenuToast === 'function') showMenuToast(`🔔 New Waiter Order from ${orderRecord.customer.name}!`);
@@ -11770,23 +11762,23 @@ function setupWaiterOrdersListener() {
                             }
                             updated = true;
                         } else {
-                            // If order is modified to Billed or Cancelled, remove the Pending entry from sales array
-                            const prevLength = sales.length;
-                            sales = sales.filter(s => s.id !== docId && s.invoiceNo !== docId);
-                            if (sales.length !== prevLength) {
+                            // If order is modified to Billed or Cancelled, remove the Pending entry
+                            const prevLength = digitalOrders.length;
+                            digitalOrders = digitalOrders.filter(s => s.id !== docId && s.invoiceNo !== docId);
+                            if (digitalOrders.length !== prevLength) {
                                 updated = true;
                             }
                         }
                     } else if (change.type === 'removed') {
-                        const prevLength = sales.length;
-                        sales = sales.filter(s => s.id !== docId && s.invoiceNo !== docId);
-                        if (sales.length !== prevLength) {
+                        const prevLength = digitalOrders.length;
+                        digitalOrders = digitalOrders.filter(s => s.id !== docId && s.invoiceNo !== docId);
+                        if (digitalOrders.length !== prevLength) {
                             updated = true;
                         }
                     }
                 });
                 if (updated) {
-                    localStorage.setItem('mediflow_sales', JSON.stringify(sales));
+                    localStorage.setItem(pendingKey, JSON.stringify(digitalOrders));
                     if (typeof renderDigitalOrders === 'function') renderDigitalOrders();
                 }
                 isInitialWaiterLoad = false;
@@ -12489,12 +12481,13 @@ async function submitWaiterOrderToCloud() {
     try {
         if (isFirebaseEnabled && db) {
             // Write separate document to waiter_orders collection for concurrency safety
-            db.collection('waiter_orders').doc(orderId).set(orderData).catch(err => console.error("Background sync failed:", err));
+            await db.collection('waiter_orders').doc(orderId).set(orderData);
         } else {
-            // Local fallback
-            let localOrders = JSON.parse(localStorage.getItem('mediflow_digital_orders')) || [];
+            // Local fallback branch-specific
+            const pendingKey = `mediflow_${(typeof currentBranchId !== 'undefined' ? currentBranchId : 'branch_default')}_digital_orders`;
+            let localOrders = JSON.parse(localStorage.getItem(pendingKey)) || [];
             localOrders.unshift(orderData);
-            localStorage.setItem('mediflow_digital_orders', JSON.stringify(localOrders));
+            localStorage.setItem(pendingKey, JSON.stringify(localOrders));
         }
 
         alert(`✅ Order #${orderId} Sent to Kitchen & PC!\nTable: ${currentWaiterTable}\nWaiter: ${currentWaiterName}`);
