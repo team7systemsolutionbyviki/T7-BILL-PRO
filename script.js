@@ -12128,6 +12128,17 @@ function renderWaiterMenu() {
         return matchesCat && matchesSearch;
     });
 
+    const sortVal = document.getElementById('wm-sort-select') ? document.getElementById('wm-sort-select').value : 'default';
+    if (sortVal === 'a-z') {
+        filtered.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    } else if (sortVal === 'z-a') {
+        filtered.sort((a, b) => (b.name || '').localeCompare(a.name || ''));
+    } else if (sortVal === 'price-asc') {
+        filtered.sort((a, b) => (parseFloat(a.salePrice || a.price || a.mrp || 0)) - (parseFloat(b.salePrice || b.price || b.mrp || 0)));
+    } else if (sortVal === 'price-desc') {
+        filtered.sort((a, b) => (parseFloat(b.salePrice || b.price || b.mrp || 0)) - (parseFloat(a.salePrice || a.price || a.mrp || 0)));
+    }
+
     if (filtered.length === 0) {
         listEl.style.gridTemplateColumns = '1fr';
         listEl.innerHTML = `

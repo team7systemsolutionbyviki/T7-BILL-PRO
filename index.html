@@ -3535,6 +3535,13 @@
                         <div id="wm-category-pills" style="display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; -webkit-overflow-scrolling: touch; flex: 1;">
                             <!-- Category pills dynamically rendered -->
                         </div>
+                        <select id="wm-sort-select" class="form-select" onchange="renderWaiterMenu()" style="border-radius: 10px; padding: 6px 8px; font-size: 0.8rem; font-weight: 700; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-color); cursor: pointer; flex-shrink: 0;">
+                            <option value="default">⇅ Sort</option>
+                            <option value="a-z">A-Z</option>
+                            <option value="z-a">Z-A</option>
+                            <option value="price-asc">Price ↑</option>
+                            <option value="price-desc">Price ↓</option>
+                        </select>
                         <div style="display: flex; gap: 2px; background: var(--card-bg); padding: 3px; border-radius: 12px; border: 1px solid var(--border-color); flex-shrink: 0;">
                             <button type="button" id="wm-view-grid-btn" onclick="setWaiterMenuViewMode('grid')" style="padding: 6px 10px; border: none; border-radius: 8px; font-size: 0.8rem; font-weight: 700; background: var(--primary-color); color: white; cursor: pointer; transition: all 0.2s;" title="Card Grid View">📱 Grid</button>
                             <button type="button" id="wm-view-list-btn" onclick="setWaiterMenuViewMode('list')" style="padding: 6px 10px; border: none; border-radius: 8px; font-size: 0.8rem; font-weight: 700; background: transparent; color: var(--text-color); cursor: pointer; transition: all 0.2s;" title="Compact List View">📋 List</button>
