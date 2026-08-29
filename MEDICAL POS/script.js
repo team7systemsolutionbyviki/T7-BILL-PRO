@@ -595,7 +595,11 @@ async function syncFromCloud() {
                 }
 
                 if (col === 'products') products = arrayData;
-                else if (col === 'sales') sales = arrayData;
+                else if (col === 'sales') {
+                    const pendingDigital = (sales || []).filter(s => (s.isWaiterOrder || s.isDigitalOrder) && (s.status === 'Pending' || s.status === 'pending'));
+                    sales = [...arrayData, ...pendingDigital];
+                    arrayData = sales; // ensure localStorage also saves the preserved orders
+                }
                 else if (col === 'purchases') purchases = arrayData;
                 else if (col === 'expenses') expenses = arrayData;
                 else if (col === 'categories') categories = arrayData;
@@ -720,7 +724,11 @@ function setupCloudListener() {
                             }
 
                             if (colKey === 'products') products = arrayData;
-                            else if (colKey === 'sales') sales = arrayData;
+                            else if (colKey === 'sales') {
+                                const pendingDigital = (sales || []).filter(s => (s.isWaiterOrder || s.isDigitalOrder) && (s.status === 'Pending' || s.status === 'pending'));
+                                sales = [...arrayData, ...pendingDigital];
+                                arrayData = sales; // ensure localStorage also saves the preserved orders
+                            }
                             else if (colKey === 'purchases') purchases = arrayData;
                             else if (colKey === 'expenses') expenses = arrayData;
                             else if (colKey === 'categories') categories = arrayData;
