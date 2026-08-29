@@ -11742,6 +11742,7 @@ function setupWaiterOrdersListener() {
                                 customer: data.customer || { name: 'Table ' + (data.tableNumber || '?'), phone: data.waiterName || '' },
                                 orderType: 'Dine-In',
                                 orderRef: data.orderRef || ('Table ' + (data.tableNumber || '?')),
+                                notes: data.notes || '',
                                 items: data.items || [],
                                 grandTotal: parseFloat(data.totalAmount || data.grandTotal) || 0,
                                 status: 'Pending',
