@@ -579,7 +579,7 @@ async function syncFromCloud() {
                 localStorage.setItem('mediflow_branches', JSON.stringify(branches));
                 originalSetItem.call(localStorage, 'mediflow_branches', JSON.stringify(branches));
             } else {
-                const arrayData = extractArrayData(cloudData);
+                let arrayData = extractArrayData(cloudData);
                 const localKey = 'mediflow_' + docName;
                 let existingLocal = [];
                 try {
@@ -708,7 +708,7 @@ function setupCloudListener() {
                                 localStorage.setItem('mediflow_cash_openings', JSON.stringify(cashOpenings));
                             }
                         } else {
-                            const arrayData = extractArrayData(cloudData);
+                            let arrayData = extractArrayData(cloudData);
                             let localKey = 'mediflow_' + colKey;
                             let existingLocal = [];
                             try {
