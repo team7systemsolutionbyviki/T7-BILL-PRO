@@ -478,10 +478,66 @@ function initFirebase() {
             db = firebase.firestore();
             isFirebaseEnabled = true;
             console.log("T7 BillPro Cloud Connected");
+            
+            // Start real-time Waiter Orders listener immediately!
+            setupWaiterOrdersListener();
+            
+            // Start heavy data sync in background
             syncFromCloud().then(() => {
                 setupCloudListener();
-                setupWaiterOrdersListener();
             });
+
+            // Fallback: 5-second polling for Waiter Orders to guarantee delivery without page refresh
+            setInterval(() => {
+                if (isFirebaseEnabled && db) {
+                    db.collection('waiter_orders')
+                      .where('branchId', '==', currentBranchId)
+                      .where('status', 'in', ['Pending', 'pending'])
+                      .get()
+                      .then(snapshot => {
+                          let pendingKey = getPendingOrdersKey();
+                          let digitalOrders = JSON.parse(localStorage.getItem(pendingKey)) || [];
+                          let updated = false;
+                          
+                          snapshot.forEach(doc => {
+                              const data = doc.data();
+                              const docId = doc.id;
+                              let idx = digitalOrders.findIndex(s => s.id === docId || s.invoiceNo === docId);
+                              
+                              if (idx === -1) {
+                                  // We missed this order in real-time listener! Force add it.
+                                  const orderRecord = {
+                                      id: docId,
+                                      invoiceNo: docId,
+                                      date: data.createdAt || data.date || new Date().toISOString(),
+                                      customer: data.customer || { name: 'Table ' + (data.tableNumber || '?'), phone: data.waiterName || '' },
+                                      orderType: 'Dine-In',
+                                      orderRef: data.orderRef || ('Table ' + (data.tableNumber || '?')),
+                                      notes: data.notes || '',
+                                      items: data.items || [],
+                                      grandTotal: parseFloat(data.totalAmount || data.grandTotal) || 0,
+                                      status: 'Pending',
+                                      isDigitalOrder: true,
+                                      isWaiterOrder: true,
+                                      waiterName: data.waiterName || '',
+                                      tableNumber: data.tableNumber || '',
+                                      branchId: data.branchId
+                                  };
+                                  digitalOrders.unshift(orderRecord);
+                                  updated = true;
+                                  
+                                  if (typeof playBeep === 'function') playBeep();
+                                  if (typeof showMenuToast === 'function') showMenuToast(`🔔 New Waiter Order from ${orderRecord.customer.name}! (Auto-Fetched)`);
+                              }
+                          });
+                          
+                          if (updated) {
+                              localStorage.setItem(pendingKey, JSON.stringify(digitalOrders));
+                              if (typeof renderDigitalOrders === 'function') renderDigitalOrders();
+                          }
+                      }).catch(err => console.warn("Polling Waiter Orders Error:", err));
+                }
+            }, 5000);
         }
     } catch (e) {
         console.error("Cloud Connection Error:", e);
@@ -8079,9 +8135,18 @@ window.calculateCustomCakePrice = calculateCustomCakePrice;
 window.printDigitalOrderKOT = printDigitalOrderKOT;
 
 function printDigitalOrderKOT(orderId) {
+    let pendingOrders = [];
+    try {
+        pendingOrders = JSON.parse(localStorage.getItem(getPendingOrdersKey())) || [];
+    } catch (e) {}
+    if (pendingOrders.length === 0) {
+        try {
+            pendingOrders = JSON.parse(localStorage.getItem('mediflow_digital_orders')) || [];
+        } catch (e) {}
+    }
+    
     const order = sales.find(s => s.id === orderId || s.invoiceNo === orderId) || 
-                  (typeof digitalOrders !== 'undefined' && Array.isArray(digitalOrders) ? digitalOrders.find(s => s.id === orderId || s.invoiceNo === orderId) : null);
-                  
+                  pendingOrders.find(s => s.id === orderId || s.invoiceNo === orderId);
     if (!order) {
         alert('Order not found!');
         return;
