@@ -467,9 +467,9 @@ const firebaseConfig = {
     measurementId: "G-QFJCKQYP9P"
 };
 
-let db = null;
-let isFirebaseEnabled = false;
-let unsubscribeCloudListener = null;
+var db = null;
+var isFirebaseEnabled = false;
+var unsubscribeCloudListener = null;
 
 function initFirebase() {
     try {
@@ -521,7 +521,7 @@ function extractArrayData(cloudData) {
     return [];
 }
 
-let isSyncingFromCloud = false;
+var isSyncingFromCloud = false;
 
 async function syncFromCloud() {
     if (!isFirebaseEnabled || !db) return;
@@ -11732,8 +11732,10 @@ function setupWaiterOrdersListener() {
                 snapshot.docChanges().forEach(change => {
                     const data = change.doc.data();
                     const docId = change.doc.id;
+                    const statusStr = (data && data.status) ? String(data.status).toLowerCase() : '';
+                    
                     if (change.type === 'added' || change.type === 'modified') {
-                        if (data && (data.status === 'Pending' || data.status === 'pending')) {
+                        if (statusStr === 'pending') {
                             let idx = digitalOrders.findIndex(s => s.id === docId || s.invoiceNo === docId);
                             const orderRecord = {
                                 id: docId,
@@ -11767,6 +11769,7 @@ function setupWaiterOrdersListener() {
                             const prevLength = digitalOrders.length;
                             digitalOrders = digitalOrders.filter(s => s.id !== docId && s.invoiceNo !== docId);
                             if (digitalOrders.length !== prevLength) {
+                                console.log(`Waiter order ${docId} removed because status changed to: ${statusStr}`);
                                 updated = true;
                             }
                         }
@@ -11774,6 +11777,7 @@ function setupWaiterOrdersListener() {
                         const prevLength = digitalOrders.length;
                         digitalOrders = digitalOrders.filter(s => s.id !== docId && s.invoiceNo !== docId);
                         if (digitalOrders.length !== prevLength) {
+                            console.log(`Waiter order ${docId} removed because document was deleted from Firestore.`);
                             updated = true;
                         }
                     }
