@@ -1202,8 +1202,6 @@ function initApp() {
         renderCustomers();
         renderSuppliers();
         renderCartTabs();
-        if (typeof renderDigitalOrders === 'function') renderDigitalOrders();
-        if (typeof renderTableManagement === 'function') renderTableManagement();
         loadSettings();
         checkAMCStatus();
         
