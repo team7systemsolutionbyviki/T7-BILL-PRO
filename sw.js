@@ -23,7 +23,7 @@ self.addEventListener('fetch', event => {
     fetch(event.request)
       .then(response => {
         // Clone the response and update the cache dynamically
-        if (response && response.status === 200) {
+        if (response && response.status === 200 && event.request.method === 'GET') {
           const responseToCache = response.clone();
           caches.open(CACHE_NAME).then(cache => {
             cache.put(event.request, responseToCache);

@@ -1203,6 +1203,8 @@ function initApp() {
         renderSuppliers();
         renderCartTabs();
         loadSettings();
+        if (typeof renderDigitalOrders === 'function') renderDigitalOrders();
+        if (typeof renderTableManagement === 'function') renderTableManagement();
         checkAMCStatus();
         
         lucide.createIcons();
