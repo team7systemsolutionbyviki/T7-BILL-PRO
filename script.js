@@ -4676,8 +4676,12 @@ function handleExpenseSubmit(e) {
         }
     }
 
+    const expIdInput = document.getElementById('exp-id');
+    const isEditing = expIdInput && expIdInput.value !== '';
+    const expenseId = isEditing ? expIdInput.value : 'EXP' + Date.now();
+
     const expenseData = {
-        id: 'EXP' + Date.now(),
+        id: expenseId,
         category: category,
         description: (document.getElementById('exp-desc').value || '').trim(),
         amount: parseFloat(document.getElementById('exp-amount').value) || 0,
@@ -4685,13 +4689,26 @@ function handleExpenseSubmit(e) {
         paymentMode: document.getElementById('exp-payment-mode')?.value || 'Cash'
     };
 
-    expenses.push(expenseData);
+    if (isEditing) {
+        const index = expenses.findIndex(ex => ex.id === expenseId);
+        if (index !== -1) {
+            expenses[index] = expenseData;
+        }
+    } else {
+        expenses.push(expenseData);
+    }
     localStorage.setItem('mediflow_expenses', JSON.stringify(expenses));
     if (typeof syncToCloud === 'function') {
         syncToCloud('expenses', { data: expenses });
     }
 
     e.target.reset();
+    if (expIdInput) expIdInput.value = '';
+    const submitBtn = document.getElementById('exp-submit-btn');
+    const cancelBtn = document.getElementById('exp-cancel-btn');
+    if (submitBtn) submitBtn.innerHTML = '<i data-lucide="wallet"></i> <span>Save Expense</span>';
+    if (cancelBtn) cancelBtn.style.display = 'none';
+
     if (customCategoryInput) {
         customCategoryInput.value = '';
         customCategoryInput.style.display = 'none';
@@ -4701,7 +4718,13 @@ function handleExpenseSubmit(e) {
     }
     updateExpenseCategoryDropdowns();
     renderExpenses();
-    alert(`Expense recorded under category "${category}" and category saved to list!`);
+    
+    if (isEditing) {
+        alert('Expense updated successfully!');
+    } else {
+        alert(`Expense recorded under category "${category}" and category saved to list!`);
+    }
+    if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 
 function renderExpenses() {
@@ -4715,12 +4738,106 @@ function renderExpenses() {
                 <td>${ex.date || '---'}</td>
                 <td>${ex.category || '---'}</td>
                 <td>${settings.currency}${parseFloat(ex.amount || 0).toFixed(2)}</td>
+                <td>
+                    <div style="display: flex; gap: 0.25rem;">
+                        <button class="btn btn-warning" onclick="editExpense('${ex.id}')" style="padding: 4px 8px; font-size: 0.8rem;" title="Edit">
+                            <i data-lucide="edit" style="width: 14px; height: 14px;"></i>
+                        </button>
+                        <button class="btn btn-danger" onclick="deleteExpense('${ex.id}')" style="padding: 4px 8px; font-size: 0.8rem;" title="Delete">
+                            <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
+                        </button>
+                    </div>
+                </td>
             `;
             tbody.appendChild(tr);
         });
+        if (typeof lucide !== 'undefined') lucide.createIcons();
     } catch (e) {
         console.error('Error rendering expenses:', e);
     }
+}
+
+function editExpense(id) {
+    const expense = expenses.find(ex => ex.id === id);
+    if (!expense) return;
+
+    const expIdInput = document.getElementById('exp-id');
+    const categorySelect = document.getElementById('exp-category');
+    const descInput = document.getElementById('exp-desc');
+    const amountInput = document.getElementById('exp-amount');
+    const dateInput = document.getElementById('exp-date');
+    const paymentModeSelect = document.getElementById('exp-payment-mode');
+    
+    if (expIdInput) expIdInput.value = expense.id;
+    if (descInput) descInput.value = expense.description || '';
+    if (amountInput) amountInput.value = expense.amount || 0;
+    if (dateInput) dateInput.value = expense.date || '';
+    if (paymentModeSelect) paymentModeSelect.value = expense.paymentMode || 'Cash';
+
+    if (categorySelect) {
+        // If category is not in options, add it
+        let optionExists = Array.from(categorySelect.options).some(opt => opt.value === expense.category);
+        if (!optionExists) {
+            const newOption = document.createElement('option');
+            newOption.value = expense.category;
+            newOption.textContent = expense.category;
+            categorySelect.appendChild(newOption);
+        }
+        categorySelect.value = expense.category;
+    }
+
+    const submitBtn = document.getElementById('exp-submit-btn');
+    const cancelBtn = document.getElementById('exp-cancel-btn');
+    
+    if (submitBtn) {
+        submitBtn.innerHTML = '<i data-lucide="edit"></i> <span>Update Expense</span>';
+    }
+    if (cancelBtn) {
+        cancelBtn.style.display = 'flex';
+    }
+    
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    // Scroll to top of expenses section
+    const expensesSection = document.getElementById('expenses');
+    if (expensesSection) expensesSection.scrollIntoView({ behavior: 'smooth' });
+}
+
+function cancelEditExpense() {
+    const form = document.getElementById('expense-form');
+    if (form) form.reset();
+    
+    const expIdInput = document.getElementById('exp-id');
+    if (expIdInput) expIdInput.value = '';
+    
+    if (document.getElementById('exp-date')) {
+        document.getElementById('exp-date').value = new Date().toISOString().split('T')[0];
+    }
+    
+    const submitBtn = document.getElementById('exp-submit-btn');
+    const cancelBtn = document.getElementById('exp-cancel-btn');
+    
+    if (submitBtn) {
+        submitBtn.innerHTML = '<i data-lucide="wallet"></i> <span>Save Expense</span>';
+    }
+    if (cancelBtn) {
+        cancelBtn.style.display = 'none';
+    }
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function deleteExpense(id) {
+    if (!confirm('Are you sure you want to delete this expense?')) return;
+
+    expenses = expenses.filter(ex => ex.id !== id);
+    localStorage.setItem('mediflow_expenses', JSON.stringify(expenses));
+    
+    if (typeof syncToCloud === 'function') {
+        syncToCloud('expenses', { data: expenses });
+    }
+    
+    renderExpenses();
+    renderDashboard();
 }
 
 function reprintBill(saleId) {

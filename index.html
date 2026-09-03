@@ -1029,6 +1029,7 @@
                     <div class="card">
                         <h3 style="margin-bottom: 1.5rem;">Add New Expense</h3>
                         <form id="expense-form">
+                            <input type="hidden" id="exp-id">
                             <div class="form-group">
                                 <label style="display: flex; justify-content: space-between; align-items: center;">
                                     <span>Expense Category *</span>
@@ -1073,10 +1074,17 @@
                                     </select>
                                 </div>
                             </div>
-                            <button type="submit" class="btn btn-secondary"
-                                style="width: 100%; justify-content: center; margin-top: 1rem;">
-                                <i data-lucide="wallet"></i> Save Expense
-                            </button>
+                            <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+                                <button type="submit" id="exp-submit-btn" class="btn btn-secondary"
+                                    style="flex: 1; justify-content: center;">
+                                    <i data-lucide="wallet"></i> <span>Save Expense</span>
+                                </button>
+                                <button type="button" id="exp-cancel-btn" class="btn btn-outline"
+                                    style="display: none; justify-content: center; padding: 0.5rem 1rem;"
+                                    onclick="cancelEditExpense()">
+                                    Cancel
+                                </button>
+                            </div>
                         </form>
                     </div>
                     <div class="card">
@@ -1095,6 +1103,7 @@
                                         <th>Date</th>
                                         <th>Category</th>
                                         <th>Amount</th>
+                                        <th>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
