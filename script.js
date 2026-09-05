@@ -41,6 +41,40 @@ localStorage.getItem = function(key) {
     return originalGetItem.apply(this, [key]);
 };
 
+// --- Offline QR Code Helper ---
+window.generateOfflineQRCode = function(text, size = 250) {
+    try {
+        if (typeof QRCode === 'undefined') return '';
+        const div = document.createElement('div');
+        div.style.position = 'absolute';
+        div.style.left = '-9999px';
+        div.style.top = '-9999px';
+        document.body.appendChild(div);
+        
+        new QRCode(div, {
+            text: String(text),
+            width: size,
+            height: size,
+            correctLevel: QRCode.CorrectLevel.L
+        });
+        
+        let result = '';
+        const canvas = div.querySelector('canvas');
+        if (canvas) {
+            result = canvas.toDataURL('image/png');
+        } else {
+            const img = div.querySelector('img');
+            if (img && img.src) result = img.src;
+        }
+        
+        document.body.removeChild(div);
+        return result;
+    } catch (e) {
+        console.error("QR Code Generation failed:", e);
+        return '';
+    }
+};
+
 localStorage.setItem = function(key, value) {
     let actualKey = key;
     if (branchSpecificKeys.includes(key) && typeof currentBranchId !== 'undefined' && currentBranchId) {
@@ -378,6 +412,7 @@ function loadBranchData() {
     if (settings.kotEnabled === undefined) settings.kotEnabled = true;
     if (!settings.printerName) settings.printerName = 'Default System Printer';
     if (!settings.printCopies) settings.printCopies = 1;
+    if (!settings.currency) settings.currency = '₹';
 
     expenses = getLegacyOrBranchData('mediflow_expenses') || [];
     categories = getLegacyOrBranchData('mediflow_categories') || ['Tablet', 'Syrup', 'Injection', 'Capsule', 'Ointment', 'Other'];
@@ -492,7 +527,6 @@ function initFirebase() {
                 if (isFirebaseEnabled && db) {
                     db.collection('waiter_orders')
                       .where('branchId', '==', currentBranchId)
-                      .where('status', 'in', ['Pending', 'pending'])
                       .get()
                       .then(snapshot => {
                           let pendingKey = getPendingOrdersKey();
@@ -502,6 +536,9 @@ function initFirebase() {
                           snapshot.forEach(doc => {
                               const data = doc.data();
                               const docId = doc.id;
+                              const statusStr = (data && data.status) ? String(data.status).toLowerCase() : '';
+                              if (statusStr !== 'pending') return;
+
                               let idx = digitalOrders.findIndex(s => s.id === docId || s.invoiceNo === docId);
                               
                               if (idx === -1) {
@@ -547,25 +584,8 @@ function initFirebase() {
 window.initApp = initApp;
 
 async function syncToCloud(collectionName, documentData) {
-    if (!isFirebaseEnabled || !db) return;
-    try {
-        let docName = collectionName;
-        if (collectionName === 'customerPayments') docName = 'customer_payments';
-        if (collectionName === 'supplierPayments') docName = 'supplier_payments';
-        if (collectionName === 'expenseCategories') docName = 'expense_categories';
-        if (collectionName === 'staffAdvances') docName = 'staff_advances';
-        if (collectionName === 'salaryPayments') docName = 'salary_payments';
-        
-        const globalCols = ['admins', 'branches', 'amc', 'branch_settings_permissions'];
-        let fbDocName = globalCols.includes(collectionName) ? docName : `${currentBranchId}_${docName}`;
-        
-        await db.collection('mediflow_data').doc(fbDocName).set({
-            payload: documentData.data !== undefined ? documentData.data : documentData,
-            updatedAt: new Date().toISOString()
-        });
-    } catch (e) {
-        console.error('Error syncing to cloud:', e);
-    }
+    // Cloud sync has been explicitly disabled by user request to keep all data locally.
+    return;
 }
 
 function extractArrayData(cloudData) {
@@ -580,255 +600,15 @@ function extractArrayData(cloudData) {
 var isSyncingFromCloud = false;
 
 async function syncFromCloud() {
-    if (!isFirebaseEnabled || !db) return;
-    try {
-        isSyncingFromCloud = true;
-        
-        const lastSyncedBranch = localStorage.getItem('mediflow_last_synced_branch');
-        const isBranchChange = lastSyncedBranch && lastSyncedBranch !== currentBranchId;
-
-        const collections = ['products', 'sales', 'settings', 'purchases', 'expenses', 'categories', 'expense_categories', 'customers', 'suppliers', 'admins', 'supplier_payments', 'customer_payments', 'branches', 'staff', 'attendance', 'staff_advances', 'salary_payments', 'digital_orders', 'doctors', 'held_carts', 'amc', 'tables', 'branch_settings_permissions', 'cash_transactions', 'cash_openings'];
-        
-        let hasUpdates = false;
-        const globalCols = ['admins', 'branches', 'amc', 'branch_settings_permissions'];
-
-        const docs = await Promise.all(collections.map(col => {
-            let docName = col;
-            if (col === 'customerPayments') docName = 'customer_payments';
-            if (col === 'supplierPayments') docName = 'supplier_payments';
-            let fbDocName = globalCols.includes(col) ? docName : `${currentBranchId}_${docName}`;
-            return db.collection('mediflow_data').doc(fbDocName).get()
-                .then(doc => ({ col, docName, doc }))
-                .catch(() => null);
-        }));
-
-        for (const item of docs) {
-            if (!item || !item.doc || !item.doc.exists) continue;
-            const { col, docName, doc } = item;
-            const cloudData = doc.data().payload;
-            if (cloudData === undefined || cloudData === null) continue;
-
-            if (col === 'settings') {
-                if (typeof cloudData === 'object' && !Array.isArray(cloudData)) {
-                    settings = cloudData;
-                    localStorage.setItem('mediflow_settings', JSON.stringify(settings));
-                    originalSetItem.call(localStorage, 'mediflow_settings', JSON.stringify(settings));
-                }
-            } else if (col === 'amc') {
-                let parsedAmc = cloudData;
-                if (Array.isArray(cloudData) && cloudData.length > 0) parsedAmc = cloudData[0];
-                if (parsedAmc && typeof parsedAmc === 'object') {
-                    amcData = parsedAmc;
-                    localStorage.setItem('mediflow_amc', JSON.stringify(amcData));
-                    originalSetItem.call(localStorage, 'mediflow_amc', JSON.stringify(amcData));
-                }
-            } else if (col === 'branch_settings_permissions') {
-                let parsedPerms = cloudData;
-                if (Array.isArray(cloudData) && cloudData.length > 0) parsedPerms = cloudData[0];
-                if (parsedPerms && typeof parsedPerms === 'object') {
-                    branchSettingsPermissions = parsedPerms;
-                    localStorage.setItem('mediflow_branch_settings_permissions', JSON.stringify(branchSettingsPermissions));
-                    originalSetItem.call(localStorage, 'mediflow_branch_settings_permissions', JSON.stringify(branchSettingsPermissions));
-                }
-            } else if (col === 'branches') {
-                branches = extractArrayData(cloudData);
-                localStorage.setItem('mediflow_branches', JSON.stringify(branches));
-                originalSetItem.call(localStorage, 'mediflow_branches', JSON.stringify(branches));
-            } else {
-                let arrayData = extractArrayData(cloudData);
-                const localKey = 'mediflow_' + docName;
-                let existingLocal = [];
-                try {
-                    existingLocal = JSON.parse(localStorage.getItem(localKey)) || [];
-                } catch (e) {}
-
-                const isWaiterModeActive = typeof isWaiterMobileMode !== 'undefined' && isWaiterMobileMode;
-
-                if (!isWaiterModeActive && !isBranchChange && Array.isArray(existingLocal) && existingLocal.length > arrayData.length) {
-                    // Local has more items than cloud. Likely an offline/failed sync.
-                    // Do not overwrite local data with older cloud data to prevent data loss.
-                    continue;
-                }
-
-                if (col === 'products') products = arrayData;
-                else if (col === 'sales') {
-                    const pendingDigital = (sales || []).filter(s => (s.isWaiterOrder || s.isDigitalOrder) && (s.status === 'Pending' || s.status === 'pending'));
-                    let merged = [...arrayData, ...pendingDigital];
-                    let uniqueMap = new Map();
-                    merged.forEach(s => uniqueMap.set(s.id || s.invoiceNo, s));
-                    sales = Array.from(uniqueMap.values());
-                    arrayData = sales; // ensure localStorage also saves the preserved orders
-                }
-                else if (col === 'purchases') purchases = arrayData;
-                else if (col === 'expenses') expenses = arrayData;
-                else if (col === 'categories') categories = arrayData;
-                else if (col === 'expense_categories') expenseCategories = arrayData;
-                else if (col === 'customers') customers = arrayData;
-                else if (col === 'suppliers') suppliers = arrayData;
-                else if (col === 'admins') admins = arrayData;
-                else if (col === 'supplier_payments' || col === 'supplierPayments') supplierPayments = arrayData;
-                else if (col === 'customer_payments' || col === 'customerPayments') customerPayments = arrayData;
-                else if (col === 'staff') staffList = arrayData;
-                else if (col === 'attendance') attendanceLogs = arrayData;
-                else if (col === 'staff_advances') staffAdvances = arrayData;
-                else if (col === 'salary_payments') salaryPayments = arrayData;
-                else if (col === 'digital_orders') digitalOrders = arrayData;
-                else if (col === 'doctors') doctorsList = arrayData;
-                else if (col === 'held_carts') heldCarts = arrayData;
-                else if (col === 'tables') tableList = arrayData;
-
-                window[col] = arrayData;
-                localStorage.setItem(localKey, JSON.stringify(arrayData));
-                originalSetItem.call(localStorage, localKey, JSON.stringify(arrayData));
-            }
-            hasUpdates = true;
-        }
-
-        // Post Cloud Sync: Check if products need recovery from sales/purchases history
-        if ((!products || products.length === 0) && ((sales && sales.length > 0) || (purchases && purchases.length > 0))) {
-            products = recoverProductsFromSales(products, sales, purchases);
-            localStorage.setItem('mediflow_products', JSON.stringify(products));
-            hasUpdates = true;
-        }
-
-        if (hasUpdates) {
-            console.log("Parallel Cloud sync complete: App re-initialized with remote data.");
-            initApp();
-        }
-        localStorage.setItem('mediflow_last_synced_branch', currentBranchId);
-    } catch (e) {
-        console.error('Error syncing from cloud:', e);
-    } finally {
-        isSyncingFromCloud = false;
-    }
+    // Cloud sync has been explicitly disabled by user request to keep all data locally.
+    return;
 }
 
 function setupCloudListener() {
-    if (!isFirebaseEnabled || !db) return;
-    try {
-        if (unsubscribeCloudListener) {
-            unsubscribeCloudListener();
-        }
-        unsubscribeCloudListener = db.collection('mediflow_data').onSnapshot((snapshot) => {
-            snapshot.docChanges().forEach((change) => {
-                if (change.type === "added" || change.type === "modified") {
-                    if (change.doc.metadata && change.doc.metadata.hasPendingWrites) {
-                        return;
-                    }
-                    if (isSyncingFromCloud) return;
-
-                    const docId = change.doc.id;
-                    const cloudData = change.doc.data().payload;
-                    if (cloudData === undefined || cloudData === null) return;
-
-                    const globalCols = ['admins', 'branches', 'amc', 'branch_settings_permissions'];
-                    const isGlobal = globalCols.includes(docId);
-                    const isBranchDoc = docId.startsWith(`${currentBranchId}_`);
-
-                    if (!isGlobal && !isBranchDoc) return;
-
-                    isSyncingFromCloud = true;
-                    try {
-                        let colKey = docId;
-                        if (isBranchDoc) {
-                            colKey = docId.replace(`${currentBranchId}_`, '');
-                        }
-
-                        if (colKey === 'settings') {
-                            if (typeof cloudData === 'object' && !Array.isArray(cloudData)) {
-                                settings = cloudData;
-                                localStorage.setItem('mediflow_settings', JSON.stringify(settings));
-                            }
-                        } else if (colKey === 'amc') {
-                            let parsedAmc = cloudData;
-                            if (Array.isArray(cloudData) && cloudData.length > 0) parsedAmc = cloudData[0];
-                            if (parsedAmc && typeof parsedAmc === 'object') {
-                                amcData = parsedAmc;
-                                localStorage.setItem('mediflow_amc', JSON.stringify(amcData));
-                                if (typeof renderBranches === 'function') renderBranches();
-                                if (typeof checkAMCStatus === 'function') checkAMCStatus();
-                                if (typeof onAMCBranchSelectChange === 'function') onAMCBranchSelectChange();
-                            }
-                        } else if (colKey === 'branch_settings_permissions') {
-                            let parsedPerms = cloudData;
-                            if (Array.isArray(cloudData) && cloudData.length > 0) parsedPerms = cloudData[0];
-                            if (parsedPerms && typeof parsedPerms === 'object') {
-                                branchSettingsPermissions = parsedPerms;
-                                localStorage.setItem('mediflow_branch_settings_permissions', JSON.stringify(branchSettingsPermissions));
-                            }
-                        } else if (colKey === 'branches') {
-                            branches = extractArrayData(cloudData);
-                            localStorage.setItem('mediflow_branches', JSON.stringify(branches));
-                        } else if (colKey === 'cash_openings') {
-                            let parsedOpenings = cloudData;
-                            if (parsedOpenings && parsedOpenings.payload && typeof parsedOpenings.payload === 'object' && !Array.isArray(parsedOpenings.payload)) parsedOpenings = parsedOpenings.payload;
-                            if (parsedOpenings && typeof parsedOpenings === 'object' && !Array.isArray(parsedOpenings)) {
-                                cashOpenings = parsedOpenings;
-                                localStorage.setItem('mediflow_cash_openings', JSON.stringify(cashOpenings));
-                            }
-                        } else {
-                            let arrayData = extractArrayData(cloudData);
-                            let localKey = 'mediflow_' + colKey;
-                            let existingLocal = [];
-                            try {
-                                existingLocal = JSON.parse(localStorage.getItem(localKey)) || [];
-                            } catch (e) {}
-
-                            const isWaiterModeActive = typeof isWaiterMobileMode !== 'undefined' && isWaiterMobileMode;
-
-                            if (!isWaiterModeActive && Array.isArray(existingLocal) && existingLocal.length > arrayData.length) {
-                                // Local has more items than cloud. Likely an offline/failed sync.
-                                // Do not overwrite local data with older cloud data to prevent data loss.
-                                return;
-                            }
-
-                            if (colKey === 'products') products = arrayData;
-                            else if (colKey === 'sales') {
-                                const pendingDigital = (sales || []).filter(s => (s.isWaiterOrder || s.isDigitalOrder) && (s.status === 'Pending' || s.status === 'pending'));
-                                let merged = [...arrayData, ...pendingDigital];
-                                let uniqueMap = new Map();
-                                merged.forEach(s => uniqueMap.set(s.id || s.invoiceNo, s));
-                                sales = Array.from(uniqueMap.values());
-                                arrayData = sales; // ensure localStorage also saves the preserved orders
-                            }
-                            else if (colKey === 'purchases') purchases = arrayData;
-                            else if (colKey === 'expenses') expenses = arrayData;
-                            else if (colKey === 'categories') categories = arrayData;
-                            else if (colKey === 'expense_categories') expenseCategories = arrayData;
-                            else if (colKey === 'customers') customers = arrayData;
-                            else if (colKey === 'suppliers') suppliers = arrayData;
-                            else if (colKey === 'admins') admins = arrayData;
-                            else if (colKey === 'supplier_payments') supplierPayments = arrayData;
-                            else if (colKey === 'customer_payments') customerPayments = arrayData;
-                            else if (colKey === 'cash_transactions') cashTransactions = arrayData;
-                            else if (colKey === 'cash_openings') cashOpenings = arrayData;
-
-                            window[colKey] = arrayData;
-                            localStorage.setItem(localKey, JSON.stringify(arrayData));
-                        }
-                        if ((!products || products.length === 0) && ((sales && sales.length > 0) || (purchases && purchases.length > 0))) {
-                            products = recoverProductsFromSales(products, sales, purchases);
-                            localStorage.setItem('mediflow_products', JSON.stringify(products));
-                        }
-                        if (typeof isWaiterMobileMode !== 'undefined' && isWaiterMobileMode) {
-                            if (typeof populateWaiterPickers === 'function') populateWaiterPickers();
-                            if (typeof renderWaiterCategories === 'function') renderWaiterCategories();
-                            if (typeof renderWaiterMenu === 'function') renderWaiterMenu();
-                        } else {
-                            initApp();
-                        }
-                    } finally {
-                        isSyncingFromCloud = false;
-                    }
-                }
-            });
-        }, (err) => {
-            console.warn("Cloud realtime listener issue:", err);
-        });
-    } catch (e) {
-        console.error("Error setting up cloud listener:", e);
-    }
+    // Cloud listener has been explicitly disabled by user request to keep all data locally.
+    return;
 }
+
 
 async function backupAllToCloud() {
     if (!isFirebaseEnabled || !db) {
@@ -845,7 +625,6 @@ async function backupAllToCloud() {
         }
         await syncToCloud('products', { data: products });
         await syncToCloud('sales', { data: sales });
-        await syncToCloud('settings', settings);
         await syncToCloud('purchases', { data: purchases });
         await syncToCloud('expenses', { data: expenses });
         await syncToCloud('categories', { data: categories });
@@ -1120,6 +899,7 @@ function setupLoginHandler() {
             sessionStorage.setItem('mediflow_current_branch', sessionStorage.getItem('mediflow_current_branch') || 'branch_default');
             auditSecurityAction('superadmin_login');
             checkLoginStatus();
+            if (typeof setupWaiterOrdersListener === 'function') setupWaiterOrdersListener();
             try { 
                 const hasBackupDir = await getBackupDirHandle();
                 if (!hasBackupDir) exportData(); 
@@ -1140,6 +920,7 @@ function setupLoginHandler() {
             sessionStorage.setItem('mediflow_current_branch', found.branchId || 'branch_default');
             auditSecurityAction('admin_login', { branchId: found.branchId || 'branch_default' });
             checkLoginStatus();
+            if (typeof setupWaiterOrdersListener === 'function') setupWaiterOrdersListener();
             try { 
                 const hasBackupDir = await getBackupDirHandle();
                 if (!hasBackupDir) exportData(); 
@@ -3831,7 +3612,7 @@ function printBill(sale) {
         if (settings.shopUpi && settings.shopUpi.trim() !== '') {
             // Generate standard UPI string: upi://pay?pa=UPI_ID&pn=SHOP_NAME&am=AMOUNT
             const upiString = `upi://pay?pa=${settings.shopUpi.trim()}&pn=${encodeURIComponent(settings.shopName)}&am=${sale.grandTotal.toFixed(2)}`;
-            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(upiString)}`;
+            const qrUrl = window.generateOfflineQRCode(upiString, 150);
             
             qrImg.src = qrUrl;
             qrImg.style.display = 'inline-block';
@@ -4868,10 +4649,11 @@ function renderDashboard() {
 
         const actualSalesCount = todaysSales.filter(s => !s.isReturn).length;
         setVal('stat-sales-count', actualSalesCount);
-        setVal('stat-revenue', `${settings.currency}${revenue.toFixed(2)}`);
-        setVal('stat-expenses', `${settings.currency}${dailyExpenses.toFixed(2)}`);
-        setVal('stat-purchases', `${settings.currency}${dailyPurchases.toFixed(2)}`);
-        setVal('stat-profit', `${settings.currency}${netProfit.toFixed(2)}`);
+        const curr = settings.currency || '₹';
+        setVal('stat-revenue', `${curr}${revenue.toFixed(2)}`);
+        setVal('stat-expenses', `${curr}${dailyExpenses.toFixed(2)}`);
+        setVal('stat-purchases', `${curr}${dailyPurchases.toFixed(2)}`);
+        setVal('stat-profit', `${curr}${netProfit.toFixed(2)}`);
         setVal('stat-low-stock', lowStock);
         setVal('stat-expired', expired);
 
@@ -4883,7 +4665,7 @@ function renderDashboard() {
                     <td>#${s.invoiceNo || '---'}</td>
                     <td>${s.customer ? s.customer.name : 'Cash Customer'}</td>
                     <td>${s.items ? s.items.length : 0}</td>
-                    <td>${settings.currency}${(parseFloat(s.grandTotal) || 0).toFixed(2)}</td>
+                    <td>${curr}${(parseFloat(s.grandTotal) || 0).toFixed(2)}</td>
                     <td>${s.date ? new Date(s.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '--:--'}</td>
                 </tr>
             `).join('');
@@ -8028,7 +7810,7 @@ function showDigitalMenuQRCode(branchId) {
     const targetBranch = branchId || (typeof currentBranchId !== 'undefined' ? currentBranchId : 'branch_default');
     const branchObj = (typeof branches !== 'undefined' && Array.isArray(branches)) ? branches.find(b => b.id === targetBranch) : null;
     const menuUrl = getDigitalMenuURL(targetBranch);
-    const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(menuUrl)}`;
+    const qrApiUrl = window.generateOfflineQRCode(menuUrl, 250);
     
     if (qrImg) qrImg.src = qrApiUrl;
     if (qrUrlText) qrUrlText.textContent = menuUrl;
@@ -8048,7 +7830,7 @@ function printQRCodePoster() {
     const shopAddress = settings.shopAddress || '';
     const shopPhone = settings.shopPhone || '';
     const menuUrl = getDigitalMenuURL();
-    const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(menuUrl)}`;
+    const qrApiUrl = window.generateOfflineQRCode(menuUrl, 300);
     
     const printWin = window.open('', '_blank');
     if (!printWin) {
@@ -8095,10 +7877,6 @@ window.printQRCodePoster = printQRCodePoster;
 // Local development hosts (localhost/127.0.0.1) are not reachable from another device,
 // so QR codes use the production domain defined by the project's CNAME.
 function getPublicCakeOrderBaseUrl() {
-    const configuredPublicUrl = 'https://t7billpro.in/';
-    const host = String(window.location.hostname || '').toLowerCase();
-    const isLocalHost = host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === '::1' || host.endsWith('.local');
-    if (isLocalHost || window.location.protocol === 'file:') return configuredPublicUrl;
     return window.location.href.split('#')[0].split('?')[0];
 }
 
@@ -8114,7 +7892,7 @@ function showCustomCakeQRCode() {
     const targetBranch = (typeof currentBranchId !== 'undefined' && currentBranchId) ? currentBranchId : (sessionStorage.getItem('mediflow_current_branch') || 'branch_default');
     const baseUrl = getPublicCakeOrderBaseUrl();
     const cakeUrl = `${baseUrl}#menu-card?branch=${encodeURIComponent(targetBranch)}&cake=1`;
-    const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(cakeUrl)}`;
+    const qrApiUrl = window.generateOfflineQRCode(cakeUrl, 280);
 
     if (qrImg) qrImg.src = qrApiUrl;
     if (qrUrlText) qrUrlText.textContent = cakeUrl;
@@ -8147,7 +7925,7 @@ function printCakeQRCodePoster() {
     const targetBranch = (typeof currentBranchId !== 'undefined' && currentBranchId) ? currentBranchId : (sessionStorage.getItem('mediflow_current_branch') || 'branch_default');
     const baseUrl = getPublicCakeOrderBaseUrl();
     const cakeUrl = `${baseUrl}#menu-card?branch=${encodeURIComponent(targetBranch)}&cake=1`;
-    const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(cakeUrl)}`;
+    const qrApiUrl = window.generateOfflineQRCode(cakeUrl, 300);
 
     const printWin = window.open('', '_blank');
     if (!printWin) {
@@ -11252,7 +11030,7 @@ function showTableQRCode(tableIdx) {
     const table = tableList[tableIdx];
     const shopName = settings.shopName || 'T7 BillPro';
     const tableUrl = getTableMenuURL(table.name);
-    const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(tableUrl)}`;
+    const qrApiUrl = window.generateOfflineQRCode(tableUrl, 250);
 
     let modal = document.getElementById('table-qr-modal');
     if (!modal) {
@@ -11343,7 +11121,7 @@ function printTableQRStandee(idx, overrideSize) {
         const widthMm = selectedSize === '3inch' ? '76mm' : '96mm';
         const pageMm = selectedSize === '3inch' ? '80mm auto' : '100mm auto';
         const imgPx = selectedSize === '3inch' ? 180 : 220;
-        const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${imgPx}x${imgPx}&data=${encodeURIComponent(tableUrl)}`;
+        const qrApiUrl = window.generateOfflineQRCode(tableUrl, imgPx);
 
         printWin.document.write(`
             <!DOCTYPE html>
@@ -11383,7 +11161,7 @@ function printTableQRStandee(idx, overrideSize) {
             </html>
         `);
     } else {
-        const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(tableUrl)}`;
+        const qrApiUrl = window.generateOfflineQRCode(tableUrl, 300);
         printWin.document.write(`
             <!DOCTYPE html>
             <html>
@@ -11444,7 +11222,7 @@ function printAllTableQrs(overrideSize) {
 
         const cardsHtml = tableList.map(table => {
             const tableUrl = getTableMenuURL(table.name);
-            const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${imgPx}x${imgPx}&data=${encodeURIComponent(tableUrl)}`;
+            const qrApiUrl = window.generateOfflineQRCode(tableUrl, imgPx);
             return `
                 <div class="qr-ticket" style="page-break-after: always; margin-bottom: 15px;">
                     <h1>${escapeHtml(shopName)}</h1>
@@ -11490,7 +11268,7 @@ function printAllTableQrs(overrideSize) {
     } else {
         const cardsHtml = tableList.map(table => {
             const tableUrl = getTableMenuURL(table.name);
-            const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(tableUrl)}`;
+            const qrApiUrl = window.generateOfflineQRCode(tableUrl, 250);
             return `
                 <div class="standee-card">
                     <h1>${escapeHtml(shopName)}</h1>
@@ -12016,10 +11794,7 @@ function updateWaiterLink() {
     const testBtn = document.getElementById('waiter-link-test-btn');
     const select = document.getElementById('waiter-link-select');
 
-    const configuredPublicUrl = 'https://t7billpro.in/';
-    const host = String(window.location.hostname || '').toLowerCase();
-    const isLocalHost = host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === '::1' || host.endsWith('.local');
-    const baseUrl = (isLocalHost || window.location.protocol === 'file:') ? configuredPublicUrl : window.location.href.split('#')[0].split('?')[0];
+    const baseUrl = window.location.href.split('#')[0].split('?')[0];
 
     let waiterUrl = `${baseUrl}?mode=waiter&branch=${encodeURIComponent(currentBranchId || 'main_branch')}`;
     if (select && select.value) {
@@ -12029,7 +11804,7 @@ function updateWaiterLink() {
     if (input) input.value = waiterUrl;
     if (testBtn) testBtn.href = waiterUrl;
     if (qrImg) {
-        qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(waiterUrl)}`;
+        qrImg.src = window.generateOfflineQRCode(waiterUrl, 250);
     }
 }
 
